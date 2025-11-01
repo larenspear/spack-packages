@@ -42,6 +42,7 @@ class Erf(CMakePackage, CudaPackage):
 
     variant("mpi", default=False, description="Enable MPI support")
     variant("openmp", default=False, description="Enable OpenMP support")
+    variant("noahmp", default=False, description="Enable NoahMP")
     variant("netcdf", default=False, description="Enable NetCDF support")
     variant("particles", default=False, description="Enable particle support")
     variant("multiblock", default=False, description="Enable multiblock support")
@@ -68,6 +69,7 @@ class Erf(CMakePackage, CudaPackage):
         depends_on("mpi", when="+mpi")
         depends_on("cuda@11.0:", when="+cuda")
         depends_on("fftw", when="+fft")
+        depends_on("noahmp", when="+noahmp")
 
         with when("+netcdf"):
             depends_on("netcdf-c+mpi+parallel-netcdf", when="+mpi")
@@ -79,6 +81,8 @@ class Erf(CMakePackage, CudaPackage):
     conflicts("+openmp", when="+cuda", msg="Cannot enable both OpenMP and CUDA")
     conflicts("+fft", when="~mpi", msg="FFT support requires MPI")
     conflicts("+radiation", when="platform=darwin", msg="Radiation is not supported on macOS")
+    conflicts("+radiation", when="~netcdf", msg="RRTMGP requires NetCDF")
+    conflicts("+radiation", when="~mpi", msg="RRTMGP requires MPI")
 
     _KOKKOS_SM_TO_FLAG = {
         "70": "Kokkos_ARCH_VOLTA70",
@@ -122,6 +126,9 @@ class Erf(CMakePackage, CudaPackage):
                     self.define("NetCDF_FORTRAN_PATH", self.spec["netcdf-fortran"].prefix),
                 ]
             )
+
+        if "+noahmp" in self.spec:
+            args.append(self.define("ERF_ENABLE_NOAHMP", True))
 
         if "+radiation" in self.spec:
             args.extend(
