@@ -78,9 +78,13 @@ class Erf(CMakePackage, CudaPackage):
         depends_on("pkgconfig")
 
     with default_args(type=("build", "link")):
-        for v in ("mpi", "openmp", "cuda", "particles"):
+        for v in ("mpi", "openmp", "cuda"):
             depends_on(f"amrex+{v}", when=f"+{v}")
             depends_on(f"amrex~{v}", when=f"~{v}")
+        # ERF's CMake unconditionally requests the AMReX PARTICLES, PIC and
+        # LSOLVERS components (see AMREX_COMPONENTS in ERF's CMakeLists), so AMReX
+        # must always provide them, independent of ERF's own +particles variant.
+        depends_on("amrex+particles+pic+linear_solvers")
         for sm in CudaPackage.cuda_arch_values:
             depends_on(f"amrex+cuda cuda_arch={sm}", when=f"+cuda cuda_arch={sm}")
         depends_on("mpi", when="+mpi")
