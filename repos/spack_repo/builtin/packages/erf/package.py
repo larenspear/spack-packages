@@ -5,12 +5,10 @@ from spack.package import *
 
 
 def submodules(package):
-    submodules = []
-
-    if package.spec.satisfies("+noahmp"):
-        submodules.append("Submodules/Noah-MP")
-
-    return submodules
+    # Noah-MP used to be vendored as the Submodules/Noah-MP git submodule. It is
+    # now provided by the standalone `noahmp` package (consumed via the +noahmp
+    # variant), so no submodules need to be fetched.
+    return []
 
 
 class Erf(CMakePackage, CudaPackage):
@@ -86,6 +84,7 @@ class Erf(CMakePackage, CudaPackage):
         depends_on("mpi", when="+mpi")
         depends_on("cuda@11.0:", when="+cuda")
         depends_on("fftw", when="+fft")
+        depends_on("noahmp@5.2.1:", when="+noahmp")
 
         with when("+netcdf"):
             depends_on("amrex+mpi")
@@ -95,6 +94,20 @@ class Erf(CMakePackage, CudaPackage):
 
     conflicts("+openmp", when="+cuda", msg="Cannot enable both OpenMP and CUDA")
     conflicts("+fft", when="~mpi", msg="FFT support requires MPI")
+    conflicts("~netcdf", when="+noahmp", msg="Noah-MP requires NetCDF")
+
+    def patch(self):
+        # ERF's CMake hard-codes Noah-MP to the bundled Submodules/Noah-MP git
+        # submodule via add_subdirectory(). Redirect it to the external `noahmp`
+        # package, whose CMake config exports the same NoahMP::noahmp target that
+        # ERF already links against in CMake/BuildERFExe.cmake.
+        if self.spec.satisfies("+noahmp"):
+            filter_file(
+                "add_subdirectory(${NOAHMP_HOME} ${NOAHMP_BIN})",
+                "find_package(NoahMP REQUIRED)",
+                "CMakeLists.txt",
+                string=True,
+            )
 
     def cmake_args(self):
         args = [
