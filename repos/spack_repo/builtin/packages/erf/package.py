@@ -5,12 +5,9 @@ from spack.package import *
 
 
 def submodules(package):
-    submodules = []
-
-    if package.spec.satisfies("+noahmp"):
-        submodules.append("Submodules/Noah-MP")
-
-    return submodules
+    # Noah-MP is provided by the standalone `noahmp` package, so ERF no longer
+    # needs to fetch its bundled Submodules/Noah-MP git submodule.
+    return []
 
 
 class Erf(CMakePackage, CudaPackage):
@@ -73,7 +70,6 @@ class Erf(CMakePackage, CudaPackage):
 
     with default_args(type="build"):
         depends_on("cmake@3.20:")
-        depends_on("git")
         depends_on("c")
         depends_on("cxx")
         depends_on("fortran")
@@ -88,6 +84,9 @@ class Erf(CMakePackage, CudaPackage):
         depends_on("mpi", when="+mpi")
         depends_on("cuda@11.0:", when="+cuda")
         depends_on("fftw", when="+fft")
+        # ERF's external Noah-MP CMake path uses the drivers/erf interface that
+        # the standalone noahmp package builds and exports as NoahMP::noahmp.
+        depends_on("noahmp@5.2.1:", when="@25.12:+noahmp")
 
         with when("+netcdf"):
             depends_on("amrex+mpi")
@@ -97,6 +96,23 @@ class Erf(CMakePackage, CudaPackage):
 
     conflicts("+openmp", when="+cuda", msg="Cannot enable both OpenMP and CUDA")
     conflicts("+fft", when="~mpi", msg="FFT support requires MPI")
+    conflicts(
+        "@:25.11", when="+noahmp", msg="External Noah-MP support requires ERF 25.12 or newer"
+    )
+    conflicts("~netcdf", when="@25.12:+noahmp", msg="Noah-MP requires NetCDF")
+
+    def patch(self):
+        # ERF's CMake hard-codes Noah-MP to the bundled Submodules/Noah-MP git
+        # submodule via add_subdirectory(). Redirect it to the external `noahmp`
+        # package, whose CMake config exports the same NoahMP::noahmp target that
+        # ERF already links against in CMake/BuildERFExe.cmake.
+        if self.spec.satisfies("@25.12:+noahmp"):
+            cmakelists = "CMakeLists.txt"
+            marker = "add_subdirectory(${NOAHMP_HOME} ${NOAHMP_BIN})"
+            with open(cmakelists, encoding="utf-8") as f:
+                if marker not in f.read():
+                    raise InstallError("ERF CMake no longer matches the Noah-MP patch marker")
+            filter_file(marker, "find_package(NoahMP REQUIRED)", cmakelists, string=True)
 
     def cmake_args(self):
         args = [
@@ -108,14 +124,15 @@ class Erf(CMakePackage, CudaPackage):
             self.define_from_variant("ERF_BUILD_TESTS", "tests"),
             self.define_from_variant("ERF_BUILD_FCOMPARE", "fcompare"),
             self.define_from_variant("ERF_ENABLE_FFT", "fft"),
-            self.define_from_variant("ERF_ENABLE_NOAHMP", "noahmp"),
             self.define("ERF_DIM", "3"),
             self.define("ERF_USE_INTERNAL_AMREX", False),
             self.define("ERF_CLONE_AMREX", False),
             self.define("GIT_SUBMODULE_PROTOCOL", "https"),
             self.define("MPIEXEC_PREFLAGS", "--oversubscribe"),
-            self.define("ERF_DIM", "3"),
         ]
+
+        if self.spec.satisfies("@25.12:"):
+            args.append(self.define_from_variant("ERF_ENABLE_NOAHMP", "noahmp"))
 
         if "+netcdf" in self.spec:
             args.extend(
