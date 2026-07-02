@@ -31,35 +31,51 @@ class Erf(CMakePackage, CudaPackage):
 
     license("BSD-3-Clause", checked_by="larenspear")
 
-    version("26.06", tag="26.06", submodules=submodules)
-    version("26.05", tag="26.05", submodules=submodules)
-    version("26.04", tag="26.04", submodules=submodules)
-    version("26.03", tag="26.03", submodules=submodules)
-    version("26.02", tag="26.02", submodules=submodules)
-    version("26.01", tag="26.01", submodules=submodules)
-    version("25.12", tag="25.12", submodules=submodules)
-    version("25.11", tag="25.11", submodules=submodules)
-    version("25.10", tag="25.10", submodules=submodules)
-    version("25.08", tag="25.08", submodules=submodules)
-    version("25.07", tag="25.07", submodules=submodules)
-    version("25.06", tag="25.06", submodules=submodules)
-    version("25.05", tag="25.05", submodules=submodules)
-    version("25.04", tag="25.04", submodules=submodules)
-    version("25.03", tag="25.03", submodules=submodules)
-    version("25.01", tag="25.01", submodules=submodules)
-    version("24.11", tag="24.11", submodules=submodules)
-    version("24.10", tag="24.10", submodules=submodules)
-    version("24.09", tag="24.09", submodules=submodules)
-    version("24.08", tag="24.08", submodules=submodules)
-    version("24.06", tag="24.06", submodules=submodules)
-    version("24.05", tag="24.05", submodules=submodules)
-    version("24.04", tag="24.04", submodules=submodules)
-    version("24.03", tag="24.03", submodules=submodules)
-    version("24.02", tag="24.02", submodules=submodules)
-    version("24.01", tag="24.01", submodules=submodules)
-    version("23.12", tag="23.12", submodules=submodules)
-    version("23.11", tag="23.11", submodules=submodules)
-    version("23.10", tag="23.10", submodules=submodules)
+    # Each ERF release vendors a same-numbered AMReX submodule (ERF YY.MM tracks
+    # AMReX YY.MM) and follows AMReX's fast-moving API, which offers no
+    # cross-release compatibility guarantee: e.g. ERF 25.12 uses amrex::*::Build
+    # overloads missing from amrex@25.02 and the ArrayND ncomp() accessor removed
+    # by amrex@26.04. Declare each release together with its matching AMReX pin
+    # so a new version cannot be added without one.
+    for _v in (
+        "26.06",
+        "26.05",
+        "26.04",
+        "26.03",
+        "26.02",
+        "26.01",
+        "25.12",
+        "25.11",
+        "25.10",
+        "25.08",
+        "25.07",
+        "25.06",
+        "25.05",
+        "25.04",
+        "25.03",
+        "25.01",
+        "24.11",
+        "24.10",
+    ):
+        version(_v, tag=_v, submodules=submodules)
+        depends_on(f"amrex@{_v}", when=f"@{_v}", type=("build", "link"))
+
+    # Releases before 24.10 predate ERF's strict find_package(AMReX COMPONENTS)
+    # integration and keep their historical unpinned AMReX dependency.
+    for _v in (
+        "24.09",
+        "24.08",
+        "24.06",
+        "24.05",
+        "24.04",
+        "24.03",
+        "24.02",
+        "24.01",
+        "23.12",
+        "23.11",
+        "23.10",
+    ):
+        version(_v, tag=_v, submodules=submodules)
 
     variant("mpi", default=False, description="Enable MPI support")
     variant("openmp", default=False, description="Enable OpenMP support")
@@ -80,11 +96,20 @@ class Erf(CMakePackage, CudaPackage):
         depends_on("pkgconfig")
 
     with default_args(type=("build", "link")):
-        for v in ("mpi", "openmp", "cuda", "particles"):
+        for v in ("mpi", "openmp", "cuda"):
             depends_on(f"amrex+{v}", when=f"+{v}")
             depends_on(f"amrex~{v}", when=f"~{v}")
         for sm in CudaPackage.cuda_arch_values:
             depends_on(f"amrex+cuda cuda_arch={sm}", when=f"+cuda cuda_arch={sm}")
+
+        # ERF 24.10+ CMake unconditionally requests the AMReX PIC, PARTICLES, and
+        # LSOLVERS components via find_package(AMReX ... COMPONENTS), regardless of
+        # ERF's own +particles variant, so AMReX must always provide them. Earlier
+        # releases only needed AMReX particles when ERF's +particles was set.
+        depends_on("amrex+pic+particles+linear_solvers", when="@24.10:")
+        depends_on("amrex+particles", when="@:24.09+particles")
+        depends_on("amrex~particles", when="@:24.09~particles")
+
         depends_on("mpi", when="+mpi")
         depends_on("cuda@11.0:", when="+cuda")
         depends_on("fftw", when="+fft")
