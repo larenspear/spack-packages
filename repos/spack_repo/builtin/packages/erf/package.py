@@ -74,6 +74,30 @@ class Erf(CMakePackage, CudaPackage):
     ):
         version(_v, tag=_v, submodules=submodules)
 
+    # AMReX omits AMReX_TracerParticle_mod_K.H from its CMake install list even
+    # though its own AMReX_TracerParticles.cpp includes it (superbuilds never
+    # notice because the whole Src/Particle source dir is on the include path
+    # via BUILD_INTERFACE), so ERF's particle code cannot compile against an
+    # installed AMReX. Fetch the header straight from the pinned AMReX tag and
+    # stage it next to the ERF sources that include it (see patch()). The
+    # header's content changed at AMReX 25.10 and again at 26.04, hence one
+    # resource per band; end the last band at the first AMReX release that
+    # installs the header itself.
+    _amrex_raw = "https://raw.githubusercontent.com/AMReX-Codes/amrex"
+    for _lo, _hi, _sha in (
+        ("24.10", "25.08", "d506f51a03889bda57c3f3a8c673be5f877f5d4af3ba28ab8b1018430b3ee8b5"),
+        ("25.10", "26.03", "0999a126bc4fc26286b45a1ca98f13c4f34d06e4c816b42f83d8646af3983dcf"),
+        ("26.04", "26.06", "eb42b0564473c5313fbc2ee2c802322d38143e1c8d1d2a59c85e21def442ec35"),
+    ):
+        resource(
+            name="amrex-tracerparticle-header",
+            url=f"{_amrex_raw}/{_lo}/Src/Particle/AMReX_TracerParticle_mod_K.H",
+            sha256=_sha,
+            expand=False,
+            placement="amrex-tracerparticle-header",
+            when=f"@{_lo}:{_hi}+particles",
+        )
+
     variant("mpi", default=False, description="Enable MPI support")
     variant("openmp", default=False, description="Enable OpenMP support")
     variant("netcdf", default=False, description="Enable NetCDF support")
@@ -138,6 +162,16 @@ class Erf(CMakePackage, CudaPackage):
                 if marker not in f.read():
                     raise InstallError("ERF CMake no longer matches the Noah-MP patch marker")
             filter_file(marker, "find_package(NoahMP REQUIRED)", cmakelists, string=True)
+
+        # Place the AMReX header fetched by the resource above into
+        # Source/Particles, which ERF's particle build already puts on its
+        # include path (as -I, searched before AMReX's -isystem headers), so
+        # the copy stays harmless once AMReX installs the header itself.
+        if self.spec.satisfies("@24.10:+particles"):
+            copy(
+                join_path("amrex-tracerparticle-header", "AMReX_TracerParticle_mod_K.H"),
+                join_path("Source", "Particles"),
+            )
 
     def cmake_args(self):
         args = [
