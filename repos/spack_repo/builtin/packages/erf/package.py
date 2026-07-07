@@ -74,15 +74,16 @@ class Erf(CMakePackage, CudaPackage):
     ):
         version(_v, tag=_v, submodules=submodules)
 
-    # AMReX omits AMReX_TracerParticle_mod_K.H from its CMake install list even
-    # though its own AMReX_TracerParticles.cpp includes it (superbuilds never
-    # notice because the whole Src/Particle source dir is on the include path
-    # via BUILD_INTERFACE), so ERF's particle code cannot compile against an
-    # installed AMReX. Fetch the header straight from the pinned AMReX tag and
-    # stage it next to the ERF sources that include it (see patch()). The
-    # header's content changed at AMReX 25.10 and again at 26.04, hence one
-    # resource per band; end the last band at the first AMReX release that
-    # installs the header itself.
+    # AMReX releases through 26.07 omit AMReX_TracerParticle_mod_K.H from the
+    # CMake install list even though AMReX's own AMReX_TracerParticles.cpp
+    # includes it (superbuilds never notice because the whole Src/Particle
+    # source dir is on the include path via BUILD_INTERFACE), so ERF's particle
+    # code cannot compile against an installed AMReX. Fetch the header straight
+    # from the pinned AMReX tag and stage it next to the ERF sources that
+    # include it (see patch()). The header's content changed at AMReX 25.10 and
+    # again at 26.04, hence one resource per band. Fixed upstream in AMReX PR
+    # #5542: amrex@26.08 and newer install the header, so ERF releases pinned
+    # to those need no resource (an ERF 26.07 would extend the last band).
     _amrex_raw = "https://raw.githubusercontent.com/AMReX-Codes/amrex"
     for _lo, _hi, _sha in (
         ("24.10", "25.08", "d506f51a03889bda57c3f3a8c673be5f877f5d4af3ba28ab8b1018430b3ee8b5"),
@@ -167,7 +168,8 @@ class Erf(CMakePackage, CudaPackage):
         # Source/Particles, which ERF's particle build already puts on its
         # include path (as -I, searched before AMReX's -isystem headers), so
         # the copy stays harmless once AMReX installs the header itself.
-        if self.spec.satisfies("@24.10:+particles"):
+        # Keep this range in sync with the resource bands above.
+        if self.spec.satisfies("@24.10:26.06+particles"):
             copy(
                 join_path("amrex-tracerparticle-header", "AMReX_TracerParticle_mod_K.H"),
                 join_path("Source", "Particles"),
