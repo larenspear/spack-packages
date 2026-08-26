@@ -134,6 +134,17 @@ class Erf(CMakePackage, CudaPackage):
         depends_on("mpi", when="+mpi")
         depends_on("cuda@11.0:", when="+cuda")
         depends_on("fftw", when="+fft")
+
+        # Every ERF regression test pipes its plotfile through AMReX's fcompare,
+        # and ERF 24.10+ looks for it at <amrex prefix>/bin/amrex_fcompare, which
+        # an installed AMReX only ships with +plotfile_tools.
+        depends_on("amrex+plotfile_tools", when="+tests")
+        depends_on("amrex+plotfile_tools", when="+fcompare")
+
+        # ERF 26.06 added gtest-based unit tests, which ERF enables by default
+        # alongside the regression tests. Supply GoogleTest from Spack rather
+        # than the bundled Submodules/googletest checkout (see patch()).
+        depends_on("googletest", when="@26.06:+tests")
         # ERF's external Noah-MP CMake path uses the drivers/erf interface that
         # the standalone noahmp package builds and exports as NoahMP::noahmp.
         depends_on("noahmp@5.2.1:", when="@25.12:+noahmp")
@@ -164,6 +175,26 @@ class Erf(CMakePackage, CudaPackage):
                     raise InstallError("ERF CMake no longer matches the Noah-MP patch marker")
             filter_file(marker, "find_package(NoahMP REQUIRED)", cmakelists, string=True)
 
+        # ERF 26.06+ unit tests add_subdirectory() the bundled googletest
+        # checkout, which the submodules() filter above deliberately does not
+        # fetch. Redirect them to the Spack-provided GoogleTest: both test
+        # executables already link GTest::gtest, the target name that
+        # find_package(GTest) defines, and Tests/Unit already include(GoogleTest)
+        # for gtest_discover_tests.
+        if self.spec.satisfies("@26.06:+tests"):
+            unit_cmakelists = join_path("Tests", "Unit", "CMakeLists.txt")
+            marker = (
+                "add_subdirectory(${PROJECT_SOURCE_DIR}/Submodules/googletest\n"
+                "                 ${PROJECT_BINARY_DIR}/Submodules/googletest\n"
+                "                 EXCLUDE_FROM_ALL)"
+            )
+            with open(unit_cmakelists, encoding="utf-8") as f:
+                contents = f.read()
+            if marker not in contents:
+                raise InstallError("ERF unit tests no longer match the googletest patch marker")
+            with open(unit_cmakelists, "w", encoding="utf-8") as f:
+                f.write(contents.replace(marker, "find_package(GTest REQUIRED)"))
+
         # Place the AMReX header fetched by the resource above into
         # Source/Particles, which ERF's particle build already puts on its
         # include path (as -I, searched before AMReX's -isystem headers), so
@@ -182,15 +213,28 @@ class Erf(CMakePackage, CudaPackage):
             self.define_from_variant("ERF_ENABLE_NETCDF", "netcdf"),
             self.define_from_variant("ERF_ENABLE_PARTICLES", "particles"),
             self.define_from_variant("ERF_ENABLE_MULTIBLOCK", "multiblock"),
-            self.define_from_variant("ERF_BUILD_TESTS", "tests"),
-            self.define_from_variant("ERF_BUILD_FCOMPARE", "fcompare"),
+            # ERF spells these ERF_ENABLE_*; the ERF_BUILD_* names used here
+            # before appear nowhere in ERF's CMake (checked at every tag back to
+            # 23.10), so +tests configured no tests and +fcompare did nothing.
+            self.define_from_variant("ERF_ENABLE_TESTS", "tests"),
+            self.define_from_variant("ERF_ENABLE_FCOMPARE", "fcompare"),
             self.define_from_variant("ERF_ENABLE_FFT", "fft"),
             self.define("ERF_DIM", "3"),
             self.define("ERF_USE_INTERNAL_AMREX", False),
             self.define("ERF_CLONE_AMREX", False),
             self.define("GIT_SUBMODULE_PROTOCOL", "https"),
-            self.define("MPIEXEC_PREFLAGS", "--oversubscribe"),
         ]
+
+        # ERF 26.06 keys its gtest unit tests off a separate option that
+        # defaults to ON whenever the regression tests are on; state it
+        # explicitly so ~tests never drags in a GoogleTest build.
+        if self.spec.satisfies("@26.06:"):
+            args.append(self.define_from_variant("ERF_ENABLE_UNIT_TESTS", "tests"))
+
+        # Only ERF's test harness reads MPIEXEC_PREFLAGS, and --oversubscribe is
+        # an Open MPI spelling that other MPI launchers reject.
+        if self.spec.satisfies("+tests+mpi ^[virtuals=mpi] openmpi"):
+            args.append(self.define("MPIEXEC_PREFLAGS", "--oversubscribe"))
 
         if self.spec.satisfies("@25.12:"):
             args.append(self.define_from_variant("ERF_ENABLE_NOAHMP", "noahmp"))
