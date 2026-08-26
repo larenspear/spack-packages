@@ -128,6 +128,12 @@ class Erf(CMakePackage, CudaPackage):
         # ERF's own +particles variant, so AMReX must always provide them. Earlier
         # releases only needed AMReX particles when ERF's +particles was set.
         depends_on("amrex+pic+particles+linear_solvers", when="@24.10:")
+
+        # The same find_package() call pins the AMReX precision components:
+        # "PDOUBLE" "DOUBLE" is hard-coded through 26.05, and 26.06 derives it
+        # from ERF_PRECISION, which defaults to DOUBLE. A single-precision AMReX
+        # therefore fails component detection rather than building in single.
+        depends_on("amrex precision=double", when="@24.10:")
         depends_on("amrex+particles", when="@:24.09+particles")
         depends_on("amrex~particles", when="@:24.09~particles")
 
@@ -209,7 +215,7 @@ class Erf(CMakePackage, CudaPackage):
     def cmake_args(self):
         args = [
             self.define_from_variant("ERF_ENABLE_MPI", "mpi"),
-            self.define_from_variant("ERF_ENABLE_OMP", "openmp"),
+            self.define_from_variant("ERF_ENABLE_OPENMP", "openmp"),
             self.define_from_variant("ERF_ENABLE_NETCDF", "netcdf"),
             self.define_from_variant("ERF_ENABLE_PARTICLES", "particles"),
             self.define_from_variant("ERF_ENABLE_MULTIBLOCK", "multiblock"),
@@ -221,8 +227,6 @@ class Erf(CMakePackage, CudaPackage):
             self.define_from_variant("ERF_ENABLE_FFT", "fft"),
             self.define("ERF_DIM", "3"),
             self.define("ERF_USE_INTERNAL_AMREX", False),
-            self.define("ERF_CLONE_AMREX", False),
-            self.define("GIT_SUBMODULE_PROTOCOL", "https"),
         ]
 
         # ERF 26.06 keys its gtest unit tests off a separate option that
