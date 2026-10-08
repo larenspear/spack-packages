@@ -31,6 +31,8 @@ class Erf(CMakePackage, CudaPackage):
 
     license("BSD-3-Clause", checked_by="larenspear")
 
+    version("develop", branch="development", submodules=submodules)
+    version("26.09", tag="26.09", submodules=submodules)
     version("26.06", tag="26.06", submodules=submodules)
     version("26.05", tag="26.05", submodules=submodules)
     version("26.04", tag="26.04", submodules=submodules)
@@ -80,7 +82,10 @@ class Erf(CMakePackage, CudaPackage):
         depends_on("pkgconfig")
 
     with default_args(type=("build", "link")):
-        for v in ("mpi", "openmp", "cuda", "particles"):
+        # ERF's find_package(AMReX) always asks for the PIC and PARTICLES components,
+        # whatever ERF_ENABLE_PARTICLES is set to, so AMReX must be built with both.
+        depends_on("amrex+pic+particles")
+        for v in ("mpi", "openmp", "cuda"):
             depends_on(f"amrex+{v}", when=f"+{v}")
             depends_on(f"amrex~{v}", when=f"~{v}")
         for sm in CudaPackage.cuda_arch_values:
@@ -101,20 +106,18 @@ class Erf(CMakePackage, CudaPackage):
     def cmake_args(self):
         args = [
             self.define_from_variant("ERF_ENABLE_MPI", "mpi"),
-            self.define_from_variant("ERF_ENABLE_OMP", "openmp"),
+            self.define_from_variant("ERF_ENABLE_OPENMP", "openmp"),
             self.define_from_variant("ERF_ENABLE_NETCDF", "netcdf"),
             self.define_from_variant("ERF_ENABLE_PARTICLES", "particles"),
             self.define_from_variant("ERF_ENABLE_MULTIBLOCK", "multiblock"),
-            self.define_from_variant("ERF_BUILD_TESTS", "tests"),
-            self.define_from_variant("ERF_BUILD_FCOMPARE", "fcompare"),
+            self.define_from_variant("ERF_ENABLE_TESTS", "tests"),
+            self.define_from_variant("ERF_ENABLE_FCOMPARE", "fcompare"),
             self.define_from_variant("ERF_ENABLE_FFT", "fft"),
             self.define_from_variant("ERF_ENABLE_NOAHMP", "noahmp"),
             self.define("ERF_DIM", "3"),
             self.define("ERF_USE_INTERNAL_AMREX", False),
-            self.define("ERF_CLONE_AMREX", False),
             self.define("GIT_SUBMODULE_PROTOCOL", "https"),
             self.define("MPIEXEC_PREFLAGS", "--oversubscribe"),
-            self.define("ERF_DIM", "3"),
         ]
 
         if "+netcdf" in self.spec:
