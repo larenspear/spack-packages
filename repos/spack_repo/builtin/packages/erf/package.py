@@ -1,5 +1,6 @@
 from spack_repo.builtin.build_systems.cmake import CMakePackage
 from spack_repo.builtin.build_systems.cuda import CudaPackage
+from spack_repo.builtin.build_systems.rocm import ROCmPackage
 
 from spack.package import *
 
@@ -9,11 +10,15 @@ def submodules(package):
 
     if package.spec.satisfies("+noahmp"):
         submodules.append("Submodules/Noah-MP")
+    if package.spec.satisfies("+rrtmgp"):
+        # RRTMGP needs EKAT, which carries Kokkos and friends as nested submodules
+        submodules.append("Submodules/RRTMGP")
+        submodules.append("Submodules/ekat")
 
     return submodules
 
 
-class Erf(CMakePackage, CudaPackage):
+class Erf(CMakePackage, CudaPackage, ROCmPackage):
     """ERF solves the compressible Navier-Stokes on a Arakawa C-grid
     for large-scale weather modeling.
     """
@@ -71,7 +76,21 @@ class Erf(CMakePackage, CudaPackage):
     variant("tests", default=False, description="Enable tests")
     variant("fcompare", default=False, description="Enable fcompare")
     variant("fft", default=False, description="Enable FFT support")
-    variant("noahmp", default=False, description="Enable Noah-MP")
+    variant("noahmp", default=False, description="Enable Noah-MP land surface model")
+    variant(
+        "precision",
+        default="double",
+        values=("double", "single"),
+        multi=False,
+        description="Floating point precision of the mesh and particle data",
+    )
+    variant("hdf5", default=False, description="Enable HDF5 I/O (on by default with +netcdf)")
+    variant("sycl", default=False, description="Enable the SYCL GPU backend (needs %oneapi)")
+    variant("rrtmgp", default=False, description="Enable RTE-RRTMGP radiation (builds EKAT/Kokkos)")
+    variant("windfarm", default=False, description="Enable wind farm parameterizations")
+    variant("wsm6_fort", default=False, description="Enable the WSM6 Fortran microphysics bridge")
+    variant("wdm6_fort", default=False, description="Enable the WDM6 Fortran microphysics bridge")
+    variant("tools", default=False, description="Build the additional tools (needs NetCDF)")
 
     with default_args(type="build"):
         depends_on("cmake@3.20:")
@@ -82,17 +101,23 @@ class Erf(CMakePackage, CudaPackage):
         depends_on("pkgconfig")
 
     with default_args(type=("build", "link")):
-        # ERF's find_package(AMReX) always asks for the PIC and PARTICLES components,
-        # whatever ERF_ENABLE_PARTICLES is set to, so AMReX must be built with both.
-        depends_on("amrex+pic+particles")
-        for v in ("mpi", "openmp", "cuda"):
+        # ERF's find_package(AMReX) always asks for the 3D, PIC, PARTICLES and LSOLVERS
+        # components, whatever ERF_ENABLE_PARTICLES is set to, and uses the EB classes.
+        depends_on("amrex dimensions=3 +pic+particles+eb+linear_solvers")
+        for v in ("mpi", "openmp", "cuda", "rocm", "sycl", "hdf5"):
             depends_on(f"amrex+{v}", when=f"+{v}")
             depends_on(f"amrex~{v}", when=f"~{v}")
+        for p in ("double", "single"):
+            depends_on(f"amrex precision={p}", when=f"precision={p}")
         for sm in CudaPackage.cuda_arch_values:
             depends_on(f"amrex+cuda cuda_arch={sm}", when=f"+cuda cuda_arch={sm}")
+        for tgt in ROCmPackage.amdgpu_targets:
+            depends_on(f"amrex+rocm amdgpu_target={tgt}", when=f"+rocm amdgpu_target={tgt}")
         depends_on("mpi", when="+mpi")
         depends_on("cuda@11.0:", when="+cuda")
+        depends_on("hip", when="+rocm")
         depends_on("fftw", when="+fft")
+        depends_on("hdf5+mpi", when="+hdf5")
 
         with when("+netcdf"):
             depends_on("amrex+mpi")
@@ -100,8 +125,19 @@ class Erf(CMakePackage, CudaPackage):
             depends_on("netcdf-fortran")
             depends_on("hdf5+mpi", when="+mpi")
 
+    # one GPU backend at a time, and OpenMP is host-only
     conflicts("+openmp", when="+cuda", msg="Cannot enable both OpenMP and CUDA")
+    conflicts("+openmp", when="+rocm", msg="Cannot enable both OpenMP and HIP")
+    conflicts("+openmp", when="+sycl", msg="Cannot enable both OpenMP and SYCL")
+    conflicts("+cuda", when="+rocm", msg="Choose one GPU backend")
+    conflicts("+cuda", when="+sycl", msg="Choose one GPU backend")
+    conflicts("+rocm", when="+sycl", msg="Choose one GPU backend")
+    # constraints ERF's CMake enforces
     conflicts("+fft", when="~mpi", msg="FFT support requires MPI")
+    conflicts("+noahmp", when="~netcdf", msg="Noah-MP requires NetCDF")
+    conflicts("+rrtmgp", when="~netcdf", msg="RRTMGP requires NetCDF")
+    conflicts("+rrtmgp", when="~mpi", msg="RRTMGP (EKAT) requires MPI")
+    conflicts("+tools", when="~netcdf", msg="The tools require NetCDF")
 
     def cmake_args(self):
         args = [
@@ -114,6 +150,14 @@ class Erf(CMakePackage, CudaPackage):
             self.define_from_variant("ERF_ENABLE_FCOMPARE", "fcompare"),
             self.define_from_variant("ERF_ENABLE_FFT", "fft"),
             self.define_from_variant("ERF_ENABLE_NOAHMP", "noahmp"),
+            self.define_from_variant("ERF_ENABLE_HDF5", "hdf5"),
+            self.define_from_variant("ERF_ENABLE_SYCL", "sycl"),
+            self.define_from_variant("ERF_ENABLE_RRTMGP", "rrtmgp"),
+            self.define_from_variant("ERF_ENABLE_WINDFARM", "windfarm"),
+            self.define_from_variant("ERF_ENABLE_WSM6_FORT", "wsm6_fort"),
+            self.define_from_variant("ERF_ENABLE_WDM6_FORT", "wdm6_fort"),
+            self.define_from_variant("ERF_ENABLE_TOOLS", "tools"),
+            self.define("ERF_PRECISION", self.spec.variants["precision"].value.upper()),
             self.define("ERF_DIM", "3"),
             self.define("ERF_USE_INTERNAL_AMREX", False),
             self.define("GIT_SUBMODULE_PROTOCOL", "https"),
@@ -125,6 +169,16 @@ class Erf(CMakePackage, CudaPackage):
                 [
                     self.define("NetCDF_C_PATH", self.spec["netcdf-c"].prefix),
                     self.define("NetCDF_FORTRAN_PATH", self.spec["netcdf-fortran"].prefix),
+                ]
+            )
+
+        if "+rocm" in self.spec:
+            targets = self.spec.variants["amdgpu_target"].value
+            args.extend(
+                [
+                    self.define("ERF_ENABLE_HIP", "ON"),
+                    self.define("AMReX_AMD_ARCH", ";".join(targets)),
+                    self.define("CMAKE_CXX_COMPILER", self.spec["hip"].hipcc),
                 ]
             )
 
