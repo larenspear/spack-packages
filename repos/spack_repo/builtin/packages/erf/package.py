@@ -68,7 +68,7 @@ class Erf(CMakePackage, CudaPackage, ROCmPackage):
     version("23.11", tag="23.11", submodules=submodules)
     version("23.10", tag="23.10", submodules=submodules)
 
-    variant("mpi", default=False, description="Enable MPI support")
+    variant("mpi", default=True, description="Enable MPI support")
     variant("openmp", default=False, description="Enable OpenMP support")
     variant("netcdf", default=False, description="Enable NetCDF support")
     variant("particles", default=False, description="Enable particle support")
@@ -193,6 +193,30 @@ class Erf(CMakePackage, CudaPackage, ROCmPackage):
             )
 
         return args
+
+    @run_after("install")
+    def install_examples(self):
+        """Ship a few self-contained inputs files so an installed ERF can be run
+        without a checkout: prefix/share/erf/examples/<case>/inputs_*."""
+        examples = join_path(self.prefix.share, "erf", "examples")
+        for case in ("ScalarAdvDiff", "IsentropicVortex"):
+            src = join_path(self.stage.source_path, "Exec", "RegTests", case)
+            install_tree(src, join_path(examples, case))
+
+    def test_help(self):
+        """erf_exec prints its usage"""
+        erf_exec = which(self.prefix.bin.erf_exec)
+        out = erf_exec("--help", output=str.split, error=str.split)
+        assert "inputs" in out.lower()
+
+    def test_scalar_advection(self):
+        """run two steps of the uniform-velocity scalar advection case"""
+        inputs = join_path(
+            self.prefix.share, "erf", "examples", "ScalarAdvDiff", "inputs_advect_uniformU"
+        )
+        erf_exec = which(self.prefix.bin.erf_exec)
+        with working_dir(self.test_suite.current_test_cache_dir, create=True):
+            erf_exec(inputs, "max_step=2", "amr.plot_int=-1", "amr.check_int=-1")
 
     def setup_build_environment(self, env):
         super().setup_build_environment(env)
