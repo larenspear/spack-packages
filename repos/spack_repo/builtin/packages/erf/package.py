@@ -83,9 +83,10 @@ class Erf(CMakePackage, CudaPackage, ROCmPackage):
     # while leaving both combinations available.
     variant("hdf5", default=True, description="Enable AMReX HDF5 plotfile I/O", when="+netcdf")
     variant("hdf5", default=False, description="Enable AMReX HDF5 plotfile I/O", when="~netcdf")
-    variant("particles", default=False, description="Enable Lagrangian particles")
+    variant("particles", default=False, description="Enable Lagrangian particles", when="@24.02:")
     variant("multiblock", default=False, description="Enable multiblock support")
-    variant("fft", default=False, description="Enable the AMReX FFT-based solvers")
+    # ERF_ENABLE_FFT appeared in 25.01 (AMReX's FFT module in amrex@24.11).
+    variant("fft", default=False, description="Enable the AMReX FFT-based solvers", when="@25.01:")
     variant("tests", default=False, description="Build the regression and unit tests")
     variant("fcompare", default=False, description="Build AMReX's fcompare alongside ERF")
     # Single precision is selectable from 26.06, where the AMReX components ERF
@@ -172,14 +173,18 @@ class Erf(CMakePackage, CudaPackage, ROCmPackage):
         # are AMReX's dependencies.
         depends_on("amrex+hdf5", when="+hdf5")
         depends_on("amrex+fft", when="+fft")
+        # ERF.H includes AMReX_EBFabFactory.H unconditionally since 25.03 (the
+        # EB-aware Poisson solvers); AMReX's default has EB on, so state it.
+        depends_on("amrex+eb", when="@25.03:")
 
         # ERF 24.10+ CMake unconditionally requests the AMReX PIC, PARTICLES and
         # LSOLVERS components via find_package(AMReX ... COMPONENTS), regardless of
         # ERF's own +particles variant, so AMReX must always provide them. Earlier
         # releases only needed AMReX particles when ERF's +particles was set.
-        # ERF is three-dimensional and asks for the 3D component only;
-        # dimensions=3 keeps libamrex_1d and libamrex_2d (460 MB on a CUDA build)
-        # out of the dependency, while still accepting a 1,2,3 install.
+        # ERF is three-dimensional and asks for the 3D component only. AMReX's
+        # default (dimensions=1,2,3) satisfies this; a 3D-only AMReX
+        # (^amrex dimensions:=3) saves libamrex_1d and libamrex_2d, 460 MB on
+        # a CUDA build, and is accepted too.
         depends_on("amrex dimensions=3 +pic+particles+linear_solvers", when="@24.10:")
         depends_on("amrex+particles", when="@:24.09+particles")
         depends_on("amrex~particles", when="@:24.09~particles")
@@ -212,6 +217,8 @@ class Erf(CMakePackage, CudaPackage, ROCmPackage):
     conflicts("+cuda", when="+rocm", msg="ERF supports one of OpenMP, CUDA, HIP and SYCL")
     conflicts("+cuda", when="+sycl", msg="ERF supports one of OpenMP, CUDA, HIP and SYCL")
     conflicts("+rocm", when="+sycl", msg="ERF supports one of OpenMP, CUDA, HIP and SYCL")
+    # SYCL means Intel's compilers, for AMReX and for ERF's own kernels.
+    requires("%c,cxx=oneapi", when="+sycl", msg="the SYCL backend needs the oneAPI compilers")
     # What ERF's sources and CMake require.
     conflicts("+netcdf", when="~mpi", msg="ERF's NetCDF I/O is parallel and needs MPI")
     conflicts("+noahmp", when="~netcdf", msg="Noah-MP requires NetCDF")
