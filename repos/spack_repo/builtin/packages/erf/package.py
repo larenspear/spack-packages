@@ -2,6 +2,8 @@ from spack_repo.builtin.build_systems.cmake import CMakePackage
 from spack_repo.builtin.build_systems.cuda import CudaPackage
 from spack_repo.builtin.build_systems.rocm import ROCmPackage
 
+import os
+
 from spack.package import *
 
 
@@ -113,7 +115,7 @@ class Erf(CMakePackage, CudaPackage, ROCmPackage):
             when=f"@{_lo}:{_hi}+particles",
         )
 
-    variant("mpi", default=False, description="Enable MPI support")
+    variant("mpi", default=True, description="Enable MPI support")
     variant("openmp", default=False, description="Enable OpenMP support")
     variant("netcdf", default=False, description="Enable NetCDF support")
     variant("particles", default=False, description="Enable particle support")
@@ -363,6 +365,33 @@ class Erf(CMakePackage, CudaPackage, ROCmPackage):
             )
 
         return args
+
+    @run_after("install")
+    def install_examples(self):
+        """Ship two self-contained inputs so an installed ERF can be run without a
+        checkout: prefix/share/erf/examples/<case>/inputs_*."""
+        examples = join_path(self.prefix.share, "erf", "examples")
+        for case in ("ScalarAdvDiff", "IsentropicVortex"):
+            src = join_path(self.stage.source_path, "Exec", "RegTests", case)
+            if os.path.isdir(src):
+                install_tree(src, join_path(examples, case))
+
+    def test_help(self):
+        """erf_exec prints its usage"""
+        erf_exec = which(self.prefix.bin.erf_exec)
+        out = erf_exec("--help", output=str.split, error=str.split)
+        assert "inputs" in out.lower()
+
+    def test_scalar_advection(self):
+        """run two steps of the uniform-velocity scalar advection case"""
+        inputs = join_path(
+            self.prefix.share, "erf", "examples", "ScalarAdvDiff", "inputs_advect_uniformU"
+        )
+        if not os.path.isfile(inputs):
+            raise SkipTest("no example inputs installed for this version")
+        erf_exec = which(self.prefix.bin.erf_exec)
+        with working_dir(self.test_suite.current_test_cache_dir, create=True):
+            erf_exec(inputs, "max_step=2", "amr.plot_int=-1", "amr.check_int=-1")
 
     def setup_build_environment(self, env):
         super().setup_build_environment(env)
