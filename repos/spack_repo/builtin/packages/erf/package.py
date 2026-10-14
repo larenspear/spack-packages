@@ -133,7 +133,10 @@ class Erf(CMakePackage, CudaPackage):
         # LSOLVERS components via find_package(AMReX ... COMPONENTS), regardless of
         # ERF's own +particles variant, so AMReX must always provide them. Earlier
         # releases only needed AMReX particles when ERF's +particles was set.
-        depends_on("amrex+pic+particles+linear_solvers", when="@24.10:")
+        # ERF is three-dimensional (ERF_DIM=3) and asks for the 3D component only;
+        # dimensions=3 keeps libamrex_1d and libamrex_2d (460 MB on a CUDA build)
+        # out of the dependency, while still accepting a 1,2,3 install.
+        depends_on("amrex dimensions=3 +pic+particles+linear_solvers", when="@24.10:")
 
         # The same find_package() call pins the AMReX precision components:
         # "PDOUBLE" "DOUBLE" is hard-coded through 26.05, and 26.06 derives it
@@ -258,8 +261,15 @@ class Erf(CMakePackage, CudaPackage):
             )
 
         if "+cuda" in self.spec:
-            archs = self.spec.variants["cuda_arch"].value or ["80"]
-            args.append(self.define("CMAKE_CUDA_ARCHITECTURES", ";".join(archs)))
+            # SASS for every requested architecture, PTX only for the newest: AMReX's
+            # own "all" policy. SASS+PTX for each of three architectures pushed
+            # erf_exec past the 2 GB small code model at link time ("relocation
+            # truncated to fit: R_X86_64_PC32"). Compressed fatbins are transparent
+            # at load time.
+            archs = sorted(self.spec.variants["cuda_arch"].value or ["80"], key=int)
+            spelled = [a if a == archs[-1] else f"{a}-real" for a in archs]
+            args.append(self.define("CMAKE_CUDA_ARCHITECTURES", ";".join(spelled)))
+            args.append(self.define("CMAKE_CUDA_FLAGS", "-Xfatbin=-compress-all"))
             args.extend(
                 [
                     self.define("ERF_ENABLE_CUDA", "ON"),
