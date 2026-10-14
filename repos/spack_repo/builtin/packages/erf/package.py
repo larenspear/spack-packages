@@ -339,13 +339,11 @@ class Erf(CMakePackage, CudaPackage, ROCmPackage):
                 ]
             )
 
-        if "+netcdf" in self.spec:
-            args.extend(
-                [
-                    self.define("NetCDF_C_PATH", self.spec["netcdf-c"].prefix),
-                    self.define("NetCDF_FORTRAN_PATH", self.spec["netcdf-fortran"].prefix),
-                ]
-            )
+        if self.spec.satisfies("+netcdf") or self.spec.satisfies("+tools"):
+            # ERF's CMake prepends NETCDF_DIR to CMAKE_PREFIX_PATH before its
+            # FindNetCDF (nc-config / pkg-config); NetCDF_C_PATH and
+            # NetCDF_FORTRAN_PATH, passed before, are read nowhere in ERF.
+            args.append(self.define("NETCDF_DIR", self.spec["netcdf-c"].prefix))
 
         if "+cuda" in self.spec:
             # SASS for every requested architecture, PTX only for the newest: AMReX's
