@@ -143,10 +143,14 @@ class Erf(CMakePackage, CudaPackage, ROCmPackage):
         depends_on("cmake@3.20:")
         depends_on("c")
         depends_on("cxx")
-        # ERF's project() enables Fortran only for the Fortran-based parameterizations.
+        # ERF's project() enables Fortran only for the Fortran-based parameterizations;
+        # EKAT's own project() enables it for RRTMGP builds.
         depends_on("fortran", when="+noahmp")
         depends_on("fortran", when="+wsm6_fort")
         depends_on("fortran", when="+wdm6_fort")
+        depends_on("fortran", when="+rrtmgp")
+        # The Noah-MP ERF driver generates part of its interface with Python (26.09+).
+        depends_on("python@3:", when="+noahmp")
         # ERF's FindNetCDF tries pkg-config before nc-config.
         depends_on("pkgconfig", when="+netcdf")
         # ERF 26.06 added gtest-based unit tests, enabled by default alongside the
@@ -197,9 +201,9 @@ class Erf(CMakePackage, CudaPackage, ROCmPackage):
         # ERF opens NetCDF files with nc_create_par (NC_NETCDF4 | NC_MPIIO): the
         # HDF5-backed parallel mode, not PnetCDF.
         depends_on("netcdf-c+mpi", when="+netcdf")
-        # ERF's external Noah-MP path uses the drivers/erf interface that the
-        # standalone noahmp package builds and exports as NoahMP::noahmp.
-        depends_on("noahmp@5.2.1:", when="+noahmp")
+        # The Noah-MP ERF driver (built in-tree, see the resources below) is Fortran
+        # and reads NetCDF through the Fortran interface.
+        depends_on("netcdf-fortran", when="+noahmp")
 
     # ERF's CMake accepts at most one of OpenMP, CUDA, HIP and SYCL.
     conflicts("+openmp", when="+cuda", msg="ERF supports one of OpenMP, CUDA, HIP and SYCL")
@@ -295,6 +299,30 @@ class Erf(CMakePackage, CudaPackage, ROCmPackage):
             when="+rrtmgp",
         )
 
+    # Noah-MP's ERF coupling layer (drivers/erf) is versioned with ERF, not with
+    # Noah-MP's own releases: ERF's pin is 97 commits past the last Noah-MP tag
+    # and moves with most ERF releases, and ERF compiles the driver in-tree with
+    # its own precision macro (DOUBLE_PREC selects the Fortran real kind). So ERF
+    # builds Noah-MP from its pinned commit, like the RRTMGP stack above, rather
+    # than from the standalone noahmp package, whose tagged releases predate the
+    # interface ERF calls. Pins from `git ls-tree <ref> Submodules/Noah-MP`.
+    _noahmp_pins = (
+        ("25.12:26.04", "6dc16027de56f2abc9fe430016acd086625e9ae2"),
+        ("26.05", "c08dd406761330ac823a3e268bd2e98eb6889b40"),
+        ("26.06", "41587582bf9b73786ce693660b0a56ff412d1eff"),
+        ("26.09", "e03243d2c5eac19b1c6a02a2c3ca12f03f92cceb"),
+        ("develop", "de71219fc79a84aa3c223a41e96630f89982937b"),
+    )
+    for _versions, _commit in _noahmp_pins:
+        resource(
+            name="noahmp",
+            git="https://github.com/erf-model/noahmp.git",
+            commit=_commit,
+            destination="spack-resources",
+            placement="noahmp",
+            when=f"@{_versions}+noahmp",
+        )
+
     @staticmethod
     def _move_into_place(src, dst):
         """Move a staged resource onto the submodule path ERF's CMake expects."""
@@ -310,17 +338,8 @@ class Erf(CMakePackage, CudaPackage, ROCmPackage):
         if self.spec.satisfies("+rrtmgp"):
             for name, _, _, target in self._rrtmgp_stack:
                 self._move_into_place(join_path("spack-resources", name), target)
-
-        # ERF's CMake hard-codes Noah-MP to the bundled Submodules/Noah-MP git
-        # submodule via add_subdirectory(). Redirect it to the external `noahmp`
-        # package, whose CMake config exports the same NoahMP::noahmp target that
-        # ERF already links against in CMake/BuildERFExe.cmake.
         if self.spec.satisfies("+noahmp"):
-            marker = "add_subdirectory(${NOAHMP_HOME} ${NOAHMP_BIN})"
-            with open("CMakeLists.txt", encoding="utf-8") as f:
-                if marker not in f.read():
-                    raise InstallError("ERF CMake no longer matches the Noah-MP patch marker")
-            filter_file(marker, "find_package(NoahMP REQUIRED)", "CMakeLists.txt", string=True)
+            self._move_into_place(join_path("spack-resources", "noahmp"), "Submodules/Noah-MP")
 
         # ERF 26.06+ unit tests add_subdirectory() the bundled googletest
         # checkout, which is not fetched. Redirect them to the Spack-provided
@@ -398,6 +417,18 @@ class Erf(CMakePackage, CudaPackage, ROCmPackage):
         if spec.satisfies("+netcdf"):
             args.append(self.define("NETCDF_DIR", spec["netcdf-c"].prefix))
 
+        # The Noah-MP driver's FindNetCDF looks for the Fortran interface under the
+        # C library's prefix only; Spack keeps netcdf-fortran apart, so hand it the
+        # answers it would search for.
+        if spec.satisfies("+noahmp"):
+            netcdf_fortran = spec["netcdf-fortran"]
+            args.extend(
+                [
+                    self.define("NETCDF_INCLUDES_F90", netcdf_fortran.prefix.include),
+                    self.define("NETCDF_LIBRARIES_F90", netcdf_fortran.libs.joined(";")),
+                ]
+            )
+
         if spec.satisfies("+cuda"):
             # SASS for every requested architecture, PTX only for the newest:
             # AMReX's own "all" policy. SASS+PTX for each of three architectures
@@ -447,6 +478,10 @@ class Erf(CMakePackage, CudaPackage, ROCmPackage):
         )
         if not os.path.isfile(inputs):
             raise SkipTest("no example inputs installed for this version")
+        # A wind-farm-enabled erf_exec aborts on any input that names no
+        # windfarm_type (WindFarm's constructor rejects the None default).
+        if self.spec.satisfies("+windfarm"):
+            raise SkipTest("ERF +windfarm cannot run a case without a wind farm")
         erf_exec = Executable(self.prefix.bin.erf_exec)
         with working_dir(self.test_suite.current_test_cache_dir, create=True):
             erf_exec(inputs, "max_step=2", "erf.plot_int_1=-1", "erf.check_int=-1")
