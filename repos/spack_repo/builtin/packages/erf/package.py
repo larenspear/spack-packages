@@ -34,7 +34,13 @@ class Erf(CMakePackage, CudaPackage):
     # overloads missing from amrex@25.02 and the ArrayND ncomp() accessor removed
     # by amrex@26.04. Declare each release together with its matching AMReX pin
     # so a new version cannot be added without one.
+    # The development branch tracks AMReX's, so it pins amrex@develop the way
+    # each release pins its same-numbered AMReX.
+    version("develop", branch="development", submodules=submodules)
+    depends_on("amrex@develop", when="@develop", type=("build", "link"))
+
     for _v in (
+        "26.09",
         "26.06",
         "26.05",
         "26.04",
