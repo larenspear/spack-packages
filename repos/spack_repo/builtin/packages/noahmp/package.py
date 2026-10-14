@@ -1,3 +1,7 @@
+# Copyright Spack Project Developers. See COPYRIGHT file for details.
+#
+# SPDX-License-Identifier: (Apache-2.0 OR MIT)
+
 from spack_repo.builtin.build_systems.cmake import CMakePackage
 
 from spack.package import *
@@ -38,6 +42,18 @@ class Noahmp(CMakePackage):
     root_cmakelists_dir = "drivers/erf"
 
     variant("shared", default=True, description="Build a shared library")
+    # DOUBLE_PREC selects kind_noahmp, the real kind of every interface array,
+    # and the driver's CMake leaves it to the host: ERF compiles the driver with
+    # -DDOUBLE_PREC and the driver checks at run time that both sides agree. A
+    # library built without it is single precision and cannot be called from a
+    # double-precision host, so the macro is part of this package's ABI.
+    variant(
+        "precision",
+        default="double",
+        values=("double", "single"),
+        multi=False,
+        description="Real kind of the Noah-MP interface (must match the host model)",
+    )
 
     with default_args(type="build"):
         depends_on("cmake@3.17:")
@@ -49,6 +65,13 @@ class Noahmp(CMakePackage):
         depends_on("mpi")
         depends_on("netcdf-c")
         depends_on("netcdf-fortran")
+
+    def flag_handler(self, name, flags):
+        # The driver and the physics are compiled by three compilers; the macro
+        # must reach all of them, which is what the ERF host does too.
+        if name in ("cflags", "cxxflags", "fflags") and self.spec.satisfies("precision=double"):
+            flags.append("-DDOUBLE_PREC")
+        return (flags, None, None)
 
     def cmake_args(self):
         netcdf_fortran = self.spec["netcdf-fortran"]
@@ -106,3 +129,9 @@ class Noahmp(CMakePackage):
                 "find_dependency(MPI COMPONENTS Fortran)\n"
                 'include("${CMAKE_CURRENT_LIST_DIR}/NoahMPTargets.cmake")\n'
             )
+            # Consumers compile the interface headers with the same real kind.
+            if self.spec.satisfies("precision=double"):
+                f.write(
+                    "set_property(TARGET NoahMP::noahmp APPEND PROPERTY"
+                    " INTERFACE_COMPILE_DEFINITIONS DOUBLE_PREC)\n"
+                )
