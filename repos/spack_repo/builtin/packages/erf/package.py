@@ -1,16 +1,24 @@
 from spack_repo.builtin.build_systems.cmake import CMakePackage
 from spack_repo.builtin.build_systems.cuda import CudaPackage
+from spack_repo.builtin.build_systems.rocm import ROCmPackage
 
 from spack.package import *
 
 
 def submodules(package):
-    # Noah-MP is provided by the standalone `noahmp` package, so ERF no longer
-    # needs to fetch its bundled Submodules/Noah-MP git submodule.
-    return []
+    # Noah-MP comes from the standalone `noahmp` package, so the bundled
+    # Submodules/Noah-MP is never fetched. RRTMGP is built from ERF's submodule
+    # (ERF's CMake add_subdirectory()s it; there is no find_package path). EKAT is
+    # fetched in patch() instead of here: its own submodules (Kokkos, yaml-cpp,
+    # spdlog) are declared with SSH URLs, which Spack's recursive init would
+    # follow and fail on without a key.
+    subs = []
+    if package.spec.satisfies("+rrtmgp"):
+        subs.append("Submodules/RRTMGP")
+    return subs
 
 
-class Erf(CMakePackage, CudaPackage):
+class Erf(CMakePackage, CudaPackage, ROCmPackage):
     """ERF solves the compressible Navier-Stokes on a Arakawa C-grid
     for large-scale weather modeling.
     """
@@ -114,20 +122,37 @@ class Erf(CMakePackage, CudaPackage):
     variant("fcompare", default=False, description="Enable fcompare")
     variant("fft", default=False, description="Enable FFT support")
     variant("noahmp", default=False, description="Enable Noah-MP")
+    variant(
+        "precision",
+        default="double",
+        values=("double", "single"),
+        multi=False,
+        description="Floating point precision of the mesh and particle data",
+    )
+    variant("hdf5", default=False, description="Enable AMReX HDF5 plotfile I/O")
+    variant("sycl", default=False, description="Enable the SYCL GPU backend (needs %oneapi)")
+    variant("rrtmgp", default=False, description="Enable RTE-RRTMGP radiation (builds EKAT and Kokkos)")
+    variant("windfarm", default=False, description="Enable the wind farm parameterizations")
+    variant("wsm6_fort", default=False, description="Enable the WSM6 Fortran microphysics bridge")
+    variant("wdm6_fort", default=False, description="Enable the WDM6 Fortran microphysics bridge")
+    variant("tools", default=False, description="Build the additional tools (needs NetCDF)")
 
     with default_args(type="build"):
         depends_on("cmake@3.20:")
+        depends_on("git")
         depends_on("c")
         depends_on("cxx")
         depends_on("fortran")
         depends_on("pkgconfig")
 
     with default_args(type=("build", "link")):
-        for v in ("mpi", "openmp", "cuda"):
+        for v in ("mpi", "openmp", "cuda", "rocm", "sycl", "hdf5"):
             depends_on(f"amrex+{v}", when=f"+{v}")
             depends_on(f"amrex~{v}", when=f"~{v}")
         for sm in CudaPackage.cuda_arch_values:
             depends_on(f"amrex+cuda cuda_arch={sm}", when=f"+cuda cuda_arch={sm}")
+        for tgt in ROCmPackage.amdgpu_targets:
+            depends_on(f"amrex+rocm amdgpu_target={tgt}", when=f"+rocm amdgpu_target={tgt}")
 
         # ERF 24.10+ CMake unconditionally requests the AMReX PIC, PARTICLES, and
         # LSOLVERS components via find_package(AMReX ... COMPONENTS), regardless of
@@ -141,14 +166,19 @@ class Erf(CMakePackage, CudaPackage):
         # The same find_package() call pins the AMReX precision components:
         # "PDOUBLE" "DOUBLE" is hard-coded through 26.05, and 26.06 derives it
         # from ERF_PRECISION, which defaults to DOUBLE. A single-precision AMReX
-        # therefore fails component detection rather than building in single.
-        depends_on("amrex precision=double", when="@24.10:")
+        # therefore fails component detection rather than building in single;
+        # from 26.06 the components follow ERF_PRECISION and AMReX must match it.
+        depends_on("amrex precision=double", when="@24.10:26.05")
+        for p in ("double", "single"):
+            depends_on(f"amrex precision={p}", when=f"@26.06:precision={p}")
         depends_on("amrex+particles", when="@:24.09+particles")
         depends_on("amrex~particles", when="@:24.09~particles")
 
         depends_on("mpi", when="+mpi")
         depends_on("cuda@11.0:", when="+cuda")
+        depends_on("hip", when="+rocm")
         depends_on("fftw", when="+fft")
+        depends_on("hdf5+mpi", when="+hdf5")
 
         # Every ERF regression test pipes its plotfile through AMReX's fcompare,
         # and ERF 24.10+ looks for it at <amrex prefix>/bin/amrex_fcompare, which
@@ -170,14 +200,46 @@ class Erf(CMakePackage, CudaPackage):
             depends_on("netcdf-fortran")
             depends_on("hdf5+mpi", when="+mpi")
 
+    # one GPU backend at a time, and OpenMP is host-only
     conflicts("+openmp", when="+cuda", msg="Cannot enable both OpenMP and CUDA")
+    conflicts("+openmp", when="+rocm", msg="Cannot enable both OpenMP and HIP")
+    conflicts("+openmp", when="+sycl", msg="Cannot enable both OpenMP and SYCL")
+    conflicts("+cuda", when="+rocm", msg="Choose one GPU backend")
+    conflicts("+cuda", when="+sycl", msg="Choose one GPU backend")
+    conflicts("+rocm", when="+sycl", msg="Choose one GPU backend")
+    # what ERF's CMake enforces or assumes
     conflicts("+fft", when="~mpi", msg="FFT support requires MPI")
+    conflicts("+hdf5", when="~mpi", msg="AMReX HDF5 I/O is parallel HDF5 and needs MPI")
+    conflicts("+rrtmgp", when="~netcdf", msg="RRTMGP requires NetCDF")
+    conflicts("+rrtmgp", when="~mpi", msg="RRTMGP (EKAT) requires MPI")
+    conflicts("+tools", when="~netcdf", msg="The tools require NetCDF")
+    # ERF enables AMReX HDF5 whenever NetCDF is on; keep the install the same
+    requires("+hdf5", when="+netcdf", msg="ERF turns on HDF5 I/O with NetCDF")
+    # when each option appeared in ERF's CMake
+    conflicts("precision=single", when="@:26.05", msg="single precision needs ERF 26.06+ (AMReX components follow ERF_PRECISION from there)")
+    conflicts("+rrtmgp", when="@:25.09", msg="RRTMGP through EKAT needs ERF 25.10+")
+    conflicts("+windfarm", when="@:26.01", msg="wind farm parameterizations need ERF 26.02+")
+    conflicts("+wsm6_fort", when="@:26.04", msg="the WSM6 Fortran bridge needs ERF 26.05+")
+    conflicts("+wdm6_fort", when="@:26.08", msg="the WDM6 Fortran bridge needs ERF 26.09+")
+    conflicts("+tools", when="@:25.06", msg="the tools need ERF 25.07+")
     conflicts(
         "@:25.11", when="+noahmp", msg="External Noah-MP support requires ERF 25.12 or newer"
     )
     conflicts("~netcdf", when="@25.12:+noahmp", msg="Noah-MP requires NetCDF")
 
     def patch(self):
+        # EKAT (which carries Kokkos, yaml-cpp and spdlog as its own submodules)
+        # is fetched here rather than through submodules(): ERF lists it over
+        # HTTPS, but EKAT lists its submodules over SSH, which an unattended
+        # fetch cannot follow. Rewrite those to HTTPS and fetch what ERF builds.
+        if self.spec.satisfies("+rrtmgp"):
+            git = which("git", required=True)
+            git("submodule", "update", "--init", "--", "Submodules/ekat")
+            with working_dir(join_path("Submodules", "ekat")):
+                filter_file("git@github.com:", "https://github.com/", ".gitmodules", string=True)
+                git("submodule", "sync", "--quiet")
+                git("submodule", "update", "--init", "--", "extern/kokkos", "extern/yaml-cpp", "extern/spdlog")
+
         # ERF's CMake hard-codes Noah-MP to the bundled Submodules/Noah-MP git
         # submodule via add_subdirectory(). Redirect it to the external `noahmp`
         # package, whose CMake config exports the same NoahMP::noahmp target that
@@ -234,6 +296,14 @@ class Erf(CMakePackage, CudaPackage):
             self.define_from_variant("ERF_ENABLE_TESTS", "tests"),
             self.define_from_variant("ERF_ENABLE_FCOMPARE", "fcompare"),
             self.define_from_variant("ERF_ENABLE_FFT", "fft"),
+            self.define_from_variant("ERF_ENABLE_HDF5", "hdf5"),
+            self.define_from_variant("ERF_ENABLE_SYCL", "sycl"),
+            self.define_from_variant("ERF_ENABLE_RRTMGP", "rrtmgp"),
+            self.define_from_variant("ERF_ENABLE_WINDFARM", "windfarm"),
+            self.define_from_variant("ERF_ENABLE_WSM6_FORT", "wsm6_fort"),
+            self.define_from_variant("ERF_ENABLE_WDM6_FORT", "wdm6_fort"),
+            self.define_from_variant("ERF_ENABLE_TOOLS", "tools"),
+            self.define("ERF_PRECISION", self.spec.variants["precision"].value.upper()),
             self.define("ERF_DIM", "3"),
             self.define("ERF_USE_INTERNAL_AMREX", False),
         ]
@@ -251,6 +321,21 @@ class Erf(CMakePackage, CudaPackage):
 
         if self.spec.satisfies("@25.12:"):
             args.append(self.define_from_variant("ERF_ENABLE_NOAHMP", "noahmp"))
+
+        # ERF derives ERF_ENABLE_EKAT from RRTMGP since 26.09; older releases read
+        # it as a plain variable, which ERF's own CI sets alongside RRTMGP.
+        if self.spec.satisfies("+rrtmgp"):
+            args.append(self.define("ERF_ENABLE_EKAT", True))
+
+        if "+rocm" in self.spec:
+            targets = self.spec.variants["amdgpu_target"].value
+            args.extend(
+                [
+                    self.define("ERF_ENABLE_HIP", True),
+                    self.define("AMReX_AMD_ARCH", ";".join(targets)),
+                    self.define("CMAKE_CXX_COMPILER", self.spec["hip"].hipcc),
+                ]
+            )
 
         if "+netcdf" in self.spec:
             args.extend(
