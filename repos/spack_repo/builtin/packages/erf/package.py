@@ -254,7 +254,7 @@ class Erf(CMakePackage, CudaPackage, ROCmPackage):
             when=f"@{_lo}:{_hi}+particles",
         )
 
-    # RRTMGP, EKAT and EKAT's bundled Kokkos, yaml-cpp and spdlog, at the commits
+    # RRTMGP, EKAT and EKAT's bundled Kokkos, yaml-cpp, spdlog and Catch2, at the commits
     # ERF pins as submodules (unchanged from 25.10 through development; check with
     # `git ls-tree <ref> Submodules/ekat Submodules/RRTMGP` in ERF and
     # `git ls-tree <commit> extern` in EKAT). ERF's CMake add_subdirectory()s all
@@ -287,6 +287,14 @@ class Erf(CMakePackage, CudaPackage, ROCmPackage):
             "spdlog",
             "bdd1dff3788ebfe520f48f9ad216c60da6dd8f00",
             "Submodules/ekat/extern/spdlog",
+        ),
+        # EKAT's testing-support library needs Catch2's single header even with
+        # EKAT_ENABLE_TESTS off; nothing in ERF uses it, but EKAT always builds it.
+        (
+            "catch2",
+            "Catch2",
+            "958944d27a2d2fb82aa008377bf4f8752f6b848e",
+            "Submodules/ekat/extern/Catch2",
         ),
     )
     for _name, _repo, _commit, _ in _rrtmgp_stack:
