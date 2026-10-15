@@ -341,7 +341,7 @@ class Amrex(CMakePackage, CudaPackage, ROCmPackage):
     patch("amrex-26.04-changelog.patch", when="@26.04")
 
     # Install AMReX_TracerParticle_mod_K.H, which AMReX_TracerParticles.cpp includes
-    # but the CMake install list omitted until 26.08 (AMReX PR #5542). Downstream
+    # but the CMake install list omitted until 26.08 (AMReX PR #5542).
     patch(
         "https://github.com/AMReX-Codes/amrex/commit/950d60e482846f77431aa7513a876694b48e585c.patch?full_index=1",
         sha256="c5b7a10eb5c420404dbe4abb7a2717ef5688c47a7a0ab994782bb4053c3cc1e2",
