@@ -469,3 +469,34 @@ class Erf(CMakePackage, CudaPackage, ROCmPackage):
     def _cuda_arch_number(arch):
         """Numeric part of a compute capability ("90a" -> 90), for ordering."""
         return int("".join(c for c in arch if c.isdigit()))
+
+    @run_after("install")
+    def install_examples(self):
+        """Ship two self-contained cases so an installed ERF can be run without a
+        checkout: prefix/share/erf/examples/<case>/inputs_*."""
+        examples = join_path(self.prefix.share, "erf", "examples")
+        for case in ("ScalarAdvDiff", "IsentropicVortex"):
+            src = join_path(self.stage.source_path, "Exec", "RegTests", case)
+            if os.path.isdir(src):
+                install_tree(src, join_path(examples, case))
+
+    def test_help(self):
+        """erf_exec prints its usage"""
+        erf_exec = Executable(self.prefix.bin.erf_exec)
+        out = erf_exec("--help", output=str.split, error=str.split)
+        assert "usage" in out.lower()
+
+    def test_scalar_advection(self):
+        """run two steps of the uniform-velocity scalar advection case"""
+        inputs = join_path(
+            self.prefix.share, "erf", "examples", "ScalarAdvDiff", "inputs_advect_uniformU"
+        )
+        if not os.path.isfile(inputs):
+            raise SkipTest("no example inputs installed for this version")
+        # A wind-farm-enabled erf_exec aborts on any input that names no
+        # windfarm_type (WindFarm's constructor rejects the None default).
+        if self.spec.satisfies("+windfarm"):
+            raise SkipTest("ERF +windfarm cannot run a case without a wind farm")
+        erf_exec = Executable(self.prefix.bin.erf_exec)
+        with working_dir(self.test_suite.current_test_cache_dir, create=True):
+            erf_exec(inputs, "max_step=2", "erf.plot_int_1=-1", "erf.check_int=-1")
