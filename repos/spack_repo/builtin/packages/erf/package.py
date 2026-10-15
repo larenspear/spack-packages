@@ -110,6 +110,12 @@ class Erf(CMakePackage, CudaPackage, ROCmPackage):
     # Each of these appeared in ERF's CMake with the release named here.
     variant("tools", default=False, description="Build the additional tools", when="@25.07:")
     variant(
+        "rrtmgp",
+        default=False,
+        description="Enable RTE-RRTMGP radiation (builds EKAT and Kokkos)",
+        when="@25.10:",
+    )
+    variant(
         "noahmp",
         default=False,
         description="Enable the Noah-MP land surface model",
@@ -138,10 +144,12 @@ class Erf(CMakePackage, CudaPackage, ROCmPackage):
         depends_on("cmake@3.20:")
         depends_on("c")
         depends_on("cxx")
-        # ERF's project() enables Fortran only for the Fortran-based parameterizations.
+        # ERF's project() enables Fortran only for the Fortran-based parameterizations;
+        # EKAT's own project() enables it for RRTMGP builds.
         depends_on("fortran", when="+noahmp")
         depends_on("fortran", when="+wsm6_fort")
         depends_on("fortran", when="+wdm6_fort")
+        depends_on("fortran", when="+rrtmgp")
         # The Noah-MP ERF driver generates part of its interface with Python (26.09+).
         depends_on("python@3:", when="+noahmp")
         # ERF's FindNetCDF tries pkg-config before nc-config.
@@ -214,6 +222,8 @@ class Erf(CMakePackage, CudaPackage, ROCmPackage):
     # What ERF's sources and CMake require.
     conflicts("+netcdf", when="~mpi", msg="ERF's NetCDF I/O is parallel and needs MPI")
     conflicts("+noahmp", when="~netcdf", msg="Noah-MP requires NetCDF")
+    conflicts("+rrtmgp", when="~netcdf", msg="RRTMGP requires NetCDF")
+    conflicts("+rrtmgp", when="~mpi", msg="RRTMGP (EKAT) requires MPI")
     conflicts("+tools", when="~netcdf", msg="The tools require NetCDF")
     conflicts(
         "+wsm6_fort",
@@ -251,11 +261,64 @@ class Erf(CMakePackage, CudaPackage, ROCmPackage):
             when=f"@{_lo}:{_hi}+particles",
         )
 
+    # RRTMGP, EKAT and EKAT's bundled Kokkos, yaml-cpp, spdlog and Catch2, at the commits
+    # ERF pins as submodules (unchanged from 25.10 through development; check with
+    # `git ls-tree <ref> Submodules/ekat Submodules/RRTMGP` in ERF and
+    # `git ls-tree <commit> extern` in EKAT). ERF's CMake add_subdirectory()s all
+    # of them, forces EKAT's own spdlog (CMAKE_DISABLE_FIND_PACKAGE_spdlog) and
+    # passes Kokkos options meant for an in-tree Kokkos, and E3SM's Kokkos fork
+    # carries E3SM patches, so Spack's kokkos, spdlog and yaml-cpp packages are
+    # not drop-in replacements. They are resources rather than submodules because
+    # EKAT lists its submodules over SSH, which an unattended recursive fetch
+    # cannot follow. They land in a staging directory and patch() moves them into
+    # place: release tarballs and git checkouts both carry an empty placeholder
+    # directory at each submodule path, and Spack leaves a resource alone when its
+    # destination already exists.
+    _rrtmgp_stack = (
+        ("rrtmgp", "rte-rrtmgp", "71693e7490db0908a625eadb6ac3f23967de2c7d", "Submodules/RRTMGP"),
+        ("ekat", "EKAT", "10ab9d34ceba4eead542702a29676adf77ad91af", "Submodules/ekat"),
+        (
+            "kokkos",
+            "kokkos",
+            "6a19eb9454da490dbf785443d8f021028baeb161",
+            "Submodules/ekat/extern/kokkos",
+        ),
+        (
+            "yaml-cpp",
+            "yaml-cpp",
+            "95088a0a2b6f2dec0b3e6e59020cdcc0d4f3c658",
+            "Submodules/ekat/extern/yaml-cpp",
+        ),
+        (
+            "spdlog",
+            "spdlog",
+            "bdd1dff3788ebfe520f48f9ad216c60da6dd8f00",
+            "Submodules/ekat/extern/spdlog",
+        ),
+        # EKAT's testing-support library needs Catch2's single header even with
+        # EKAT_ENABLE_TESTS off; nothing in ERF uses it, but EKAT always builds it.
+        (
+            "catch2",
+            "Catch2",
+            "958944d27a2d2fb82aa008377bf4f8752f6b848e",
+            "Submodules/ekat/extern/Catch2",
+        ),
+    )
+    for _name, _repo, _commit, _ in _rrtmgp_stack:
+        resource(
+            name=_name,
+            git=f"https://github.com/E3SM-Project/{_repo}.git",
+            commit=_commit,
+            destination="spack-resources",
+            placement=_name,
+            when="+rrtmgp",
+        )
+
     # Noah-MP's ERF coupling layer (drivers/erf) is versioned with ERF, not with
     # Noah-MP's own releases: ERF's pin is 97 commits past the last Noah-MP tag
     # and moves with most ERF releases, and ERF compiles the driver in-tree with
     # its own precision macro (DOUBLE_PREC selects the Fortran real kind). So ERF
-    # builds Noah-MP from its pinned commit, fetched as a resource, rather
+    # builds Noah-MP from its pinned commit, like the RRTMGP stack above, rather
     # than from the standalone noahmp package, whose tagged releases predate the
     # interface ERF calls. Pins from `git ls-tree <ref> Submodules/Noah-MP`.
     _noahmp_pins = (
@@ -287,6 +350,9 @@ class Erf(CMakePackage, CudaPackage, ROCmPackage):
         os.rename(src, dst)
 
     def patch(self):
+        if self.spec.satisfies("+rrtmgp"):
+            for name, _, _, target in self._rrtmgp_stack:
+                self._move_into_place(join_path("spack-resources", name), target)
         if self.spec.satisfies("+noahmp"):
             self._move_into_place(join_path("spack-resources", "noahmp"), "Submodules/Noah-MP")
 
@@ -338,6 +404,7 @@ class Erf(CMakePackage, CudaPackage, ROCmPackage):
             self.define_from_variant("ERF_ENABLE_FCOMPARE", "fcompare"),
             # Conditional variants absent from this version define nothing.
             self.define_from_variant("ERF_ENABLE_TOOLS", "tools"),
+            self.define_from_variant("ERF_ENABLE_RRTMGP", "rrtmgp"),
             self.define_from_variant("ERF_ENABLE_NOAHMP", "noahmp"),
             self.define_from_variant("ERF_ENABLE_WINDFARM", "windfarm"),
             self.define_from_variant("ERF_ENABLE_WSM6_FORT", "wsm6_fort"),
@@ -355,6 +422,11 @@ class Erf(CMakePackage, CudaPackage, ROCmPackage):
         # an Open MPI spelling that other MPI launchers reject.
         if spec.satisfies("+tests+mpi ^[virtuals=mpi] openmpi"):
             args.append(self.define("MPIEXEC_PREFLAGS", "--oversubscribe"))
+
+        # An explicit option in the first RRTMGP releases, derived from
+        # ERF_ENABLE_RRTMGP by 26.06; setting it suits both.
+        if spec.satisfies("+rrtmgp"):
+            args.append(self.define("ERF_ENABLE_EKAT", True))
 
         # ERF's CMake prepends NETCDF_DIR to CMAKE_PREFIX_PATH before its FindNetCDF.
         if spec.satisfies("+netcdf"):
