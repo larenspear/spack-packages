@@ -1,24 +1,24 @@
+# Copyright Spack Project Developers. See COPYRIGHT file for details.
+#
+# SPDX-License-Identifier: (Apache-2.0 OR MIT)
+
 import os
 
 from spack_repo.builtin.build_systems.cmake import CMakePackage
 from spack_repo.builtin.build_systems.cuda import CudaPackage
+from spack_repo.builtin.build_systems.rocm import ROCmPackage
 
 from spack.package import *
 
 
-class Erf(CMakePackage, CudaPackage):
-    """ERF solves the compressible Navier-Stokes on a Arakawa C-grid
+class Erf(CMakePackage, CudaPackage, ROCmPackage):
+    """ERF solves the compressible Navier-Stokes equations on an Arakawa C-grid
     for large-scale weather modeling.
     """
 
     homepage = "https://erf.readthedocs.io/en/latest/index.html"
     url = "https://github.com/erf-model/ERF/archive/refs/tags/25.10.tar.gz"
     git = "https://github.com/erf-model/ERF.git"
-
-    def url_for_version(self, version):
-        return f"https://github.com/erf-model/ERF/archive/refs/tags/{version}.tar.gz"
-
-    test_requires_compiler = True
 
     maintainers("larenspear")
 
@@ -75,51 +75,118 @@ class Erf(CMakePackage, CudaPackage):
     ):
         version(_v, sha256=_sha)
 
-    variant("mpi", default=False, description="Enable MPI support")
+    variant("mpi", default=True, description="Enable MPI support")
     variant("openmp", default=False, description="Enable OpenMP support")
-    variant("netcdf", default=False, description="Enable NetCDF support")
-    variant("particles", default=False, description="Enable particle support")
+    variant("sycl", default=False, description="Enable the SYCL GPU backend (needs %oneapi)")
+    variant("netcdf", default=False, description="Enable NetCDF I/O (parallel, needs MPI)")
+    # ERF's CMake defaults ERF_ENABLE_HDF5 to the NetCDF setting; keep that default
+    # while leaving both combinations available.
+    variant("hdf5", default=True, description="Enable AMReX HDF5 plotfile I/O", when="+netcdf")
+    variant("hdf5", default=False, description="Enable AMReX HDF5 plotfile I/O", when="~netcdf")
+    variant("particles", default=False, description="Enable Lagrangian particles", when="@24.02:")
     variant("multiblock", default=False, description="Enable multiblock support")
-    variant("tests", default=False, description="Enable tests")
-    variant("fcompare", default=False, description="Enable fcompare")
-    variant("fft", default=False, description="Enable FFT support")
+    # ERF_ENABLE_FFT appeared in 25.01 (AMReX's FFT module in amrex@24.11).
+    variant("fft", default=False, description="Enable the AMReX FFT-based solvers", when="@25.01:")
+    variant("tests", default=False, description="Build the regression and unit tests")
+    variant("fcompare", default=False, description="Build AMReX's fcompare alongside ERF")
+    # Single precision is selectable from 26.06, where the AMReX components ERF
+    # requests follow ERF_PRECISION; earlier releases hard-code double.
+    variant(
+        "precision",
+        default="double",
+        values=("double",),
+        multi=False,
+        description="Floating point precision of the mesh and particle data",
+        when="@:26.05",
+    )
+    variant(
+        "precision",
+        default="double",
+        values=("double", "single"),
+        multi=False,
+        description="Floating point precision of the mesh and particle data",
+        when="@26.06:",
+    )
+    # Each of these appeared in ERF's CMake with the release named here.
+    variant("tools", default=False, description="Build the additional tools", when="@25.07:")
     variant(
         "noahmp",
         default=False,
         description="Enable the Noah-MP land surface model",
         when="@25.12:",
     )
+    variant(
+        "windfarm",
+        default=False,
+        description="Enable the wind farm parameterizations",
+        when="@26.02:",
+    )
+    variant(
+        "wsm6_fort",
+        default=False,
+        description="Enable the WSM6 Fortran microphysics bridge",
+        when="@26.05:",
+    )
+    variant(
+        "wdm6_fort",
+        default=False,
+        description="Enable the WDM6 Fortran microphysics bridge",
+        when="@26.09:",
+    )
 
     with default_args(type="build"):
         depends_on("cmake@3.20:")
-        depends_on("git")
         depends_on("c")
         depends_on("cxx")
-        depends_on("fortran")
-        depends_on("pkgconfig")
+        # ERF's project() enables Fortran only for the Fortran-based parameterizations.
+        depends_on("fortran", when="+noahmp")
+        depends_on("fortran", when="+wsm6_fort")
+        depends_on("fortran", when="+wdm6_fort")
         # The Noah-MP ERF driver generates part of its interface with Python (26.09+).
         depends_on("python@3:", when="+noahmp")
+        # ERF's FindNetCDF tries pkg-config before nc-config.
+        depends_on("pkgconfig", when="+netcdf")
+        # ERF 26.06 added gtest-based unit tests, enabled by default alongside the
+        # regression tests. Supply GoogleTest from Spack rather than the bundled
+        # Submodules/googletest checkout (see patch()).
+        depends_on("googletest", when="@26.06:+tests")
 
     with default_args(type=("build", "link")):
-        for v in ("mpi", "openmp", "cuda"):
-            depends_on(f"amrex+{v}", when=f"+{v}")
-            depends_on(f"amrex~{v}", when=f"~{v}")
-        for sm in CudaPackage.cuda_arch_values:
-            depends_on(f"amrex+cuda cuda_arch={sm}", when=f"+cuda cuda_arch={sm}")
+        # AMReX must be built for the same programming model as ERF.
+        for _v in ("mpi", "openmp", "cuda", "rocm", "sycl"):
+            depends_on(f"amrex+{_v}", when=f"+{_v}")
+            depends_on(f"amrex~{_v}", when=f"~{_v}")
+        for _sm in CudaPackage.cuda_arch_values:
+            depends_on(f"amrex+cuda cuda_arch={_sm}", when=f"+cuda cuda_arch={_sm}")
+        for _tgt in ROCmPackage.amdgpu_targets:
+            depends_on(f"amrex+rocm amdgpu_target={_tgt}", when=f"+rocm amdgpu_target={_tgt}")
 
-        # ERF 24.10+ CMake unconditionally requests the AMReX PIC, PARTICLES, and
+        # ERF only includes AMReX's HDF5 and FFT headers; the libraries behind them
+        # are AMReX's dependencies.
+        depends_on("amrex+hdf5", when="+hdf5")
+        depends_on("amrex+fft", when="+fft")
+        # ERF.H includes AMReX_EBFabFactory.H unconditionally since 25.03 (the
+        # EB-aware Poisson solvers); AMReX's default has EB on, so state it.
+        depends_on("amrex+eb", when="@25.03:")
+
+        # ERF 24.10+ CMake unconditionally requests the AMReX PIC, PARTICLES and
         # LSOLVERS components via find_package(AMReX ... COMPONENTS), regardless of
         # ERF's own +particles variant, so AMReX must always provide them. Earlier
         # releases only needed AMReX particles when ERF's +particles was set.
-        depends_on("amrex+pic+particles+linear_solvers", when="@24.10:")
+        # ERF is three-dimensional and asks for the 3D component only. AMReX's
+        # default (dimensions=1,2,3) satisfies this; a 3D-only AMReX
+        # (^amrex dimensions:=3) saves libamrex_1d and libamrex_2d, 460 MB on
+        # a CUDA build, and is accepted too.
+        depends_on("amrex dimensions=3 +pic+particles+linear_solvers", when="@24.10:")
         depends_on("amrex+particles", when="@:24.09+particles")
         depends_on("amrex~particles", when="@:24.09~particles")
 
         # The same find_package() call pins the AMReX precision components:
         # "PDOUBLE" "DOUBLE" is hard-coded through 26.05, and 26.06 derives it
-        # from ERF_PRECISION, which defaults to DOUBLE. A single-precision AMReX
-        # therefore fails component detection rather than building in single.
-        depends_on("amrex precision=double", when="@24.10:")
+        # from ERF_PRECISION, which defaults to DOUBLE.
+        depends_on("amrex precision=double", when="@24.10:26.05")
+        for _p in ("double", "single"):
+            depends_on(f"amrex precision={_p}", when=f"@26.06:precision={_p}")
 
         # Every ERF regression test pipes its plotfile through AMReX's fcompare,
         # and ERF 24.10+ looks for it at <amrex prefix>/bin/amrex_fcompare, which
@@ -127,27 +194,37 @@ class Erf(CMakePackage, CudaPackage):
         depends_on("amrex+plotfile_tools", when="+tests")
         depends_on("amrex+plotfile_tools", when="+fcompare")
 
-        # ERF 26.06 added gtest-based unit tests, which ERF enables by default
-        # alongside the regression tests. Supply GoogleTest from Spack rather
-        # than the bundled Submodules/googletest checkout (see patch()).
-        depends_on("googletest", when="@26.06:+tests")
-
         depends_on("mpi", when="+mpi")
-        depends_on("cuda@11.0:", when="+cuda")
-        depends_on("fftw", when="+fft")
-
-        with when("+netcdf"):
-            depends_on("amrex+mpi")
-            depends_on("netcdf-c+mpi+parallel-netcdf")
-            depends_on("netcdf-fortran")
-            depends_on("hdf5+mpi", when="+mpi")
+        # ERF opens NetCDF files with nc_create_par (NC_NETCDF4 | NC_MPIIO): the
+        # HDF5-backed parallel mode, not PnetCDF.
+        depends_on("netcdf-c+mpi", when="+netcdf")
         # The Noah-MP ERF driver (built in-tree, see the resources below) is Fortran
         # and reads NetCDF through the Fortran interface.
         depends_on("netcdf-fortran", when="+noahmp")
 
-    conflicts("+openmp", when="+cuda", msg="Cannot enable both OpenMP and CUDA")
-    conflicts("+fft", when="~mpi", msg="FFT support requires MPI")
+    # ERF's CMake accepts at most one of OpenMP, CUDA, HIP and SYCL.
+    conflicts("+openmp", when="+cuda", msg="ERF supports one of OpenMP, CUDA, HIP and SYCL")
+    conflicts("+openmp", when="+rocm", msg="ERF supports one of OpenMP, CUDA, HIP and SYCL")
+    conflicts("+openmp", when="+sycl", msg="ERF supports one of OpenMP, CUDA, HIP and SYCL")
+    conflicts("+cuda", when="+rocm", msg="ERF supports one of OpenMP, CUDA, HIP and SYCL")
+    conflicts("+cuda", when="+sycl", msg="ERF supports one of OpenMP, CUDA, HIP and SYCL")
+    conflicts("+rocm", when="+sycl", msg="ERF supports one of OpenMP, CUDA, HIP and SYCL")
+    # SYCL means Intel's compilers, for AMReX and for ERF's own kernels.
+    requires("%c,cxx=oneapi", when="+sycl", msg="the SYCL backend needs the oneAPI compilers")
+    # What ERF's sources and CMake require.
+    conflicts("+netcdf", when="~mpi", msg="ERF's NetCDF I/O is parallel and needs MPI")
     conflicts("+noahmp", when="~netcdf", msg="Noah-MP requires NetCDF")
+    conflicts("+tools", when="~netcdf", msg="The tools require NetCDF")
+    conflicts(
+        "+wsm6_fort",
+        when="precision=single",
+        msg="the WSM6 Fortran bridge is double precision only",
+    )
+    conflicts(
+        "+wdm6_fort",
+        when="precision=single",
+        msg="the WDM6 Fortran bridge is double precision only",
+    )
 
     # AMReX releases through 26.07 omit AMReX_TracerParticle_mod_K.H from the
     # CMake install list even though AMReX's own AMReX_TracerParticles.cpp
@@ -178,12 +255,9 @@ class Erf(CMakePackage, CudaPackage):
     # Noah-MP's own releases: ERF's pin is 97 commits past the last Noah-MP tag
     # and moves with most ERF releases, and ERF compiles the driver in-tree with
     # its own precision macro (DOUBLE_PREC selects the Fortran real kind). So ERF
-    # builds Noah-MP from the commit each release pins, fetched as a resource
-    # now that the releases are tarballs. Pins from `git ls-tree <ref>
-    # Submodules/Noah-MP`. The resource lands in a staging directory and patch()
-    # moves it into place: release tarballs and git checkouts both carry an
-    # empty placeholder directory at each submodule path, and Spack leaves a
-    # resource alone when its destination already exists.
+    # builds Noah-MP from its pinned commit, fetched as a resource, rather
+    # than from the standalone noahmp package, whose tagged releases predate the
+    # interface ERF calls. Pins from `git ls-tree <ref> Submodules/Noah-MP`.
     _noahmp_pins = (
         ("25.12:26.04", "6dc16027de56f2abc9fe430016acd086625e9ae2"),
         ("26.05", "c08dd406761330ac823a3e268bd2e98eb6889b40"),
@@ -218,10 +292,9 @@ class Erf(CMakePackage, CudaPackage):
 
         # ERF 26.06+ unit tests add_subdirectory() the bundled googletest
         # checkout, which is not fetched. Redirect them to the Spack-provided
-        # GoogleTest: both test
-        # executables already link GTest::gtest, the target name that
-        # find_package(GTest) defines, and Tests/Unit already include(GoogleTest)
-        # for gtest_discover_tests.
+        # GoogleTest: both test executables already link GTest::gtest, the target
+        # name that find_package(GTest) defines, and Tests/Unit already
+        # include(GoogleTest) for gtest_discover_tests.
         if self.spec.satisfies("@26.06:+tests"):
             unit_cmakelists = join_path("Tests", "Unit", "CMakeLists.txt")
             marker = (
@@ -248,45 +321,50 @@ class Erf(CMakePackage, CudaPackage):
             )
 
     def cmake_args(self):
+        spec = self.spec
         args = [
+            self.define("ERF_USE_INTERNAL_AMREX", False),
             self.define_from_variant("ERF_ENABLE_MPI", "mpi"),
             self.define_from_variant("ERF_ENABLE_OPENMP", "openmp"),
+            self.define_from_variant("ERF_ENABLE_CUDA", "cuda"),
+            self.define_from_variant("ERF_ENABLE_HIP", "rocm"),
+            self.define_from_variant("ERF_ENABLE_SYCL", "sycl"),
             self.define_from_variant("ERF_ENABLE_NETCDF", "netcdf"),
+            self.define_from_variant("ERF_ENABLE_HDF5", "hdf5"),
             self.define_from_variant("ERF_ENABLE_PARTICLES", "particles"),
             self.define_from_variant("ERF_ENABLE_MULTIBLOCK", "multiblock"),
-            # ERF spells these ERF_ENABLE_*; the ERF_BUILD_* names used here
-            # before appear nowhere in ERF's CMake (checked at every tag back to
-            # 23.10), so +tests configured no tests and +fcompare did nothing.
+            self.define_from_variant("ERF_ENABLE_FFT", "fft"),
             self.define_from_variant("ERF_ENABLE_TESTS", "tests"),
             self.define_from_variant("ERF_ENABLE_FCOMPARE", "fcompare"),
-            self.define_from_variant("ERF_ENABLE_FFT", "fft"),
+            # Conditional variants absent from this version define nothing.
+            self.define_from_variant("ERF_ENABLE_TOOLS", "tools"),
             self.define_from_variant("ERF_ENABLE_NOAHMP", "noahmp"),
-            self.define("ERF_DIM", "3"),
-            self.define("ERF_USE_INTERNAL_AMREX", False),
+            self.define_from_variant("ERF_ENABLE_WINDFARM", "windfarm"),
+            self.define_from_variant("ERF_ENABLE_WSM6_FORT", "wsm6_fort"),
+            self.define_from_variant("ERF_ENABLE_WDM6_FORT", "wdm6_fort"),
+            self.define("ERF_PRECISION", spec.variants["precision"].value.upper()),
         ]
 
         # ERF 26.06 keys its gtest unit tests off a separate option that
         # defaults to ON whenever the regression tests are on; state it
         # explicitly so ~tests never drags in a GoogleTest build.
-        if self.spec.satisfies("@26.06:"):
+        if spec.satisfies("@26.06:"):
             args.append(self.define_from_variant("ERF_ENABLE_UNIT_TESTS", "tests"))
 
         # Only ERF's test harness reads MPIEXEC_PREFLAGS, and --oversubscribe is
         # an Open MPI spelling that other MPI launchers reject.
-        if self.spec.satisfies("+tests+mpi ^[virtuals=mpi] openmpi"):
+        if spec.satisfies("+tests+mpi ^[virtuals=mpi] openmpi"):
             args.append(self.define("MPIEXEC_PREFLAGS", "--oversubscribe"))
 
-        if self.spec.satisfies("+netcdf"):
-            # ERF's CMake prepends NETCDF_DIR to CMAKE_PREFIX_PATH before its
-            # FindNetCDF (nc-config / pkg-config); NetCDF_C_PATH and
-            # NetCDF_FORTRAN_PATH, passed before, are read nowhere in ERF.
-            args.append(self.define("NETCDF_DIR", self.spec["netcdf-c"].prefix))
+        # ERF's CMake prepends NETCDF_DIR to CMAKE_PREFIX_PATH before its FindNetCDF.
+        if spec.satisfies("+netcdf"):
+            args.append(self.define("NETCDF_DIR", spec["netcdf-c"].prefix))
 
         # The Noah-MP driver's FindNetCDF looks for the Fortran interface under the
         # C library's prefix only; Spack keeps netcdf-fortran apart, so hand it the
         # answers it would search for.
-        if self.spec.satisfies("+noahmp"):
-            netcdf_fortran = self.spec["netcdf-fortran"]
+        if spec.satisfies("+noahmp"):
+            netcdf_fortran = spec["netcdf-fortran"]
             args.extend(
                 [
                     self.define("NETCDF_INCLUDES_F90", netcdf_fortran.prefix.include),
@@ -294,23 +372,28 @@ class Erf(CMakePackage, CudaPackage):
                 ]
             )
 
-        if "+cuda" in self.spec:
-            archs = self.spec.variants["cuda_arch"].value or ["80"]
-            args.append(self.define("CMAKE_CUDA_ARCHITECTURES", ";".join(archs)))
+        if spec.satisfies("+cuda"):
+            # SASS for every requested architecture, PTX only for the newest:
+            # AMReX's own "all" policy. SASS+PTX for each of three architectures
+            # pushed erf_exec past the 2 GB small code model at link time
+            # ("relocation truncated to fit: R_X86_64_PC32"). Compressed fatbins
+            # are transparent at load time.
+            archs = sorted(spec.variants["cuda_arch"].value, key=self._cuda_arch_number)
+            spelled = [a if a == archs[-1] else f"{a}-real" for a in archs]
             args.extend(
                 [
-                    self.define("ERF_ENABLE_CUDA", "ON"),
-                    self.define("CUDAToolkit_ROOT", self.spec["cuda"].prefix),
+                    self.define("CMAKE_CUDA_ARCHITECTURES", ";".join(spelled)),
+                    self.define("CMAKE_CUDA_FLAGS", "-Xfatbin=-compress-all"),
+                    self.define("CUDAToolkit_ROOT", spec["cuda"].prefix),
                 ]
             )
 
+        if spec.satisfies("+rocm"):
+            args.append(self.define("CMAKE_CXX_COMPILER", spec["hip"].hipcc))
+
         return args
 
-    def setup_build_environment(self, env):
-        super().setup_build_environment(env)
-        env.set("AMREX_HOME", self.spec["amrex"].prefix)
-        if "+openmp" in self.spec:
-            if "%clang" in self.spec or "%gcc" in self.spec:
-                env.append_flags("CFLAGS", self.compiler.openmp_flag)
-                env.append_flags("CXXFLAGS", self.compiler.openmp_flag)
-                env.append_flags("FFLAGS", self.compiler.openmp_flag)
+    @staticmethod
+    def _cuda_arch_number(arch):
+        """Numeric part of a compute capability ("90a" -> 90), for ordering."""
+        return int("".join(c for c in arch if c.isdigit()))
