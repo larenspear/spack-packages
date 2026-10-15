@@ -110,6 +110,23 @@ class Erf(CMakePackage, CudaPackage):
         depends_on("amrex+particles", when="@:24.09+particles")
         depends_on("amrex~particles", when="@:24.09~particles")
 
+        # The same find_package() call pins the AMReX precision components:
+        # "PDOUBLE" "DOUBLE" is hard-coded through 26.05, and 26.06 derives it
+        # from ERF_PRECISION, which defaults to DOUBLE. A single-precision AMReX
+        # therefore fails component detection rather than building in single.
+        depends_on("amrex precision=double", when="@24.10:")
+
+        # Every ERF regression test pipes its plotfile through AMReX's fcompare,
+        # and ERF 24.10+ looks for it at <amrex prefix>/bin/amrex_fcompare, which
+        # an installed AMReX only ships with +plotfile_tools.
+        depends_on("amrex+plotfile_tools", when="+tests")
+        depends_on("amrex+plotfile_tools", when="+fcompare")
+
+        # ERF 26.06 added gtest-based unit tests, which ERF enables by default
+        # alongside the regression tests. Supply GoogleTest from Spack rather
+        # than the bundled Submodules/googletest checkout (see patch()).
+        depends_on("googletest", when="@26.06:+tests")
+
         depends_on("mpi", when="+mpi")
         depends_on("cuda@11.0:", when="+cuda")
         depends_on("fftw", when="+fft")
@@ -123,32 +140,61 @@ class Erf(CMakePackage, CudaPackage):
     conflicts("+openmp", when="+cuda", msg="Cannot enable both OpenMP and CUDA")
     conflicts("+fft", when="~mpi", msg="FFT support requires MPI")
 
+    def patch(self):
+        # ERF 26.06+ unit tests add_subdirectory() the bundled googletest
+        # checkout, which the submodules() filter above deliberately does not
+        # fetch. Redirect them to the Spack-provided GoogleTest: both test
+        # executables already link GTest::gtest, the target name that
+        # find_package(GTest) defines, and Tests/Unit already include(GoogleTest)
+        # for gtest_discover_tests.
+        if self.spec.satisfies("@26.06:+tests"):
+            unit_cmakelists = join_path("Tests", "Unit", "CMakeLists.txt")
+            marker = (
+                "add_subdirectory(${PROJECT_SOURCE_DIR}/Submodules/googletest\n"
+                "                 ${PROJECT_BINARY_DIR}/Submodules/googletest\n"
+                "                 EXCLUDE_FROM_ALL)"
+            )
+            with open(unit_cmakelists, encoding="utf-8") as f:
+                contents = f.read()
+            if marker not in contents:
+                raise InstallError("ERF unit tests no longer match the googletest patch marker")
+            with open(unit_cmakelists, "w", encoding="utf-8") as f:
+                f.write(contents.replace(marker, "find_package(GTest REQUIRED)"))
+
     def cmake_args(self):
         args = [
             self.define_from_variant("ERF_ENABLE_MPI", "mpi"),
-            self.define_from_variant("ERF_ENABLE_OMP", "openmp"),
+            self.define_from_variant("ERF_ENABLE_OPENMP", "openmp"),
             self.define_from_variant("ERF_ENABLE_NETCDF", "netcdf"),
             self.define_from_variant("ERF_ENABLE_PARTICLES", "particles"),
             self.define_from_variant("ERF_ENABLE_MULTIBLOCK", "multiblock"),
-            self.define_from_variant("ERF_BUILD_TESTS", "tests"),
-            self.define_from_variant("ERF_BUILD_FCOMPARE", "fcompare"),
+            # ERF spells these ERF_ENABLE_*; the ERF_BUILD_* names used here
+            # before appear nowhere in ERF's CMake (checked at every tag back to
+            # 23.10), so +tests configured no tests and +fcompare did nothing.
+            self.define_from_variant("ERF_ENABLE_TESTS", "tests"),
+            self.define_from_variant("ERF_ENABLE_FCOMPARE", "fcompare"),
             self.define_from_variant("ERF_ENABLE_FFT", "fft"),
             self.define_from_variant("ERF_ENABLE_NOAHMP", "noahmp"),
             self.define("ERF_DIM", "3"),
             self.define("ERF_USE_INTERNAL_AMREX", False),
-            self.define("ERF_CLONE_AMREX", False),
-            self.define("GIT_SUBMODULE_PROTOCOL", "https"),
-            self.define("MPIEXEC_PREFLAGS", "--oversubscribe"),
-            self.define("ERF_DIM", "3"),
         ]
 
-        if "+netcdf" in self.spec:
-            args.extend(
-                [
-                    self.define("NetCDF_C_PATH", self.spec["netcdf-c"].prefix),
-                    self.define("NetCDF_FORTRAN_PATH", self.spec["netcdf-fortran"].prefix),
-                ]
-            )
+        # ERF 26.06 keys its gtest unit tests off a separate option that
+        # defaults to ON whenever the regression tests are on; state it
+        # explicitly so ~tests never drags in a GoogleTest build.
+        if self.spec.satisfies("@26.06:"):
+            args.append(self.define_from_variant("ERF_ENABLE_UNIT_TESTS", "tests"))
+
+        # Only ERF's test harness reads MPIEXEC_PREFLAGS, and --oversubscribe is
+        # an Open MPI spelling that other MPI launchers reject.
+        if self.spec.satisfies("+tests+mpi ^[virtuals=mpi] openmpi"):
+            args.append(self.define("MPIEXEC_PREFLAGS", "--oversubscribe"))
+
+        if self.spec.satisfies("+netcdf"):
+            # ERF's CMake prepends NETCDF_DIR to CMAKE_PREFIX_PATH before its
+            # FindNetCDF (nc-config / pkg-config); NetCDF_C_PATH and
+            # NetCDF_FORTRAN_PATH, passed before, are read nowhere in ERF.
+            args.append(self.define("NETCDF_DIR", self.spec["netcdf-c"].prefix))
 
         if "+cuda" in self.spec:
             archs = self.spec.variants["cuda_arch"].value or ["80"]
