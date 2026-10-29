@@ -163,6 +163,15 @@ class Amrex(CMakePackage, CudaPackage, ROCmPackage):
     variant("linear_solvers", default=True, description="Build linear solvers")
     variant("amrdata", default=False, description="Build data services")
     variant("particles", default=False, description="Build particle classes")
+    # AMReX_PARTICLES_PRECISION; AMReX's CMake defaults it to the mesh precision.
+    variant(
+        "particles_precision",
+        default="same",
+        values=("same", "double", "single"),
+        multi=False,
+        description="Precision of the particle data ('same' follows precision)",
+        when="+particles",
+    )
     variant("plotfile_tools", default=False, description="Build plotfile_tools like fcompare")
     variant("tiny_profile", default=False, description="Enable tiny profiling")
     variant("hdf5", default=False, description="Enable HDF5-based I/O")
@@ -389,6 +398,15 @@ class Amrex(CMakePackage, CudaPackage, ROCmPackage):
             "-DXSDK_PRECISION:STRING=%s" % self.spec.variants["precision"].value.upper(),
             self.define_from_variant("XSDK_ENABLE_Fortran", "fortran"),
             self.define_from_variant("AMReX_FORTRAN_INTERFACES", "fortran"),
+            self.define(
+                "AMReX_PARTICLES_PRECISION",
+                (
+                    self.spec.variants["particles_precision"].value
+                    if self.spec.satisfies("+particles particles_precision=double")
+                    or self.spec.satisfies("+particles particles_precision=single")
+                    else self.spec.variants["precision"].value
+                ).upper(),
+            ),
             self.define_from_variant("AMReX_EB", "eb"),
             self.define_from_variant("AMReX_LINEAR_SOLVERS", "linear_solvers"),
             self.define_from_variant("AMReX_AMRDATA", "amrdata"),
