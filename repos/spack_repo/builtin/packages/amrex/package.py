@@ -398,15 +398,6 @@ class Amrex(CMakePackage, CudaPackage, ROCmPackage):
             "-DXSDK_PRECISION:STRING=%s" % self.spec.variants["precision"].value.upper(),
             self.define_from_variant("XSDK_ENABLE_Fortran", "fortran"),
             self.define_from_variant("AMReX_FORTRAN_INTERFACES", "fortran"),
-            self.define(
-                "AMReX_PARTICLES_PRECISION",
-                (
-                    self.spec.variants["particles_precision"].value
-                    if self.spec.satisfies("+particles particles_precision=double")
-                    or self.spec.satisfies("+particles particles_precision=single")
-                    else self.spec.variants["precision"].value
-                ).upper(),
-            ),
             self.define_from_variant("AMReX_EB", "eb"),
             self.define_from_variant("AMReX_LINEAR_SOLVERS", "linear_solvers"),
             self.define_from_variant("AMReX_AMRDATA", "amrdata"),
@@ -453,6 +444,26 @@ class Amrex(CMakePackage, CudaPackage, ROCmPackage):
                 raise InstallError(
                     "AMReX's SYCL GPU Backend requires the oneAPI CXX (icpx) compiler."
                 )
+
+        if self.spec.satisfies("+particles") and not self.spec.satisfies(
+            "particles_precision=same"
+        ):
+            # In xSDK mode AMReX's CMake assigns the particle precision from
+            # XSDK_PRECISION with a plain set() that shadows any
+            # -DAMReX_PARTICLES_PRECISION, so leave xSDK mode and state both
+            # precisions directly (BUILD_SHARED_LIBS, the other xSDK default,
+            # is passed explicitly above).
+            args = [a for a in args if not a.startswith("-DUSE_XSDK_DEFAULTS")]
+            args.extend(
+                [
+                    self.define("USE_XSDK_DEFAULTS", False),
+                    self.define("AMReX_PRECISION", self.spec.variants["precision"].value.upper()),
+                    self.define(
+                        "AMReX_PARTICLES_PRECISION",
+                        self.spec.variants["particles_precision"].value.upper(),
+                    ),
+                ]
+            )
 
         return args
 
