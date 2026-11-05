@@ -20,6 +20,13 @@ class YamlCpp(CMakePackage):
 
     license("MIT")
 
+    # E3SM snapshot pinned by EKAT in ERF 26.11; retain its upstream numeric version.
+    version(
+        "0.6.3.ekat",
+        sha256="f368d1045207b357cbb78a65d2cfa8c39e6bf6f579981acee14ad158708967dd",
+        url="https://github.com/E3SM-Project/yaml-cpp/archive/95088a0a2b6f2dec0b3e6e59020cdcc0d4f3c658.tar.gz",
+    )
+
     version("develop", branch="master")
     version("0.9.0", sha256="298593d9c440fd9034b8b193d96318b76d49bc97c6ceadb7b0836edf0b6d7539")
     version("0.8.0", sha256="fbe74bbdcee21d656715688706da3c8becfd946d92cd44705cc6098bb23b3a16")
