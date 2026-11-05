@@ -1,0 +1,7 @@
+cmake_minimum_required(VERSION 3.24)
+project(ShocConsumer LANGUAGES C CXX)
+find_package(EamxxShoc 26.11 EXACT CONFIG REQUIRED)
+add_executable(consumer consumer.cpp)
+target_link_libraries(consumer PRIVATE EamxxShoc::shoc)
+enable_testing()
+add_test(NAME installed-shoc-tke COMMAND consumer)
