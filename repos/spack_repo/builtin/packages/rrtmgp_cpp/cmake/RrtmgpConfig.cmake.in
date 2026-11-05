@@ -1,0 +1,8 @@
+@PACKAGE_INIT@
+include(CMakeFindDependencyMacro)
+find_dependency(Kokkos 5.1 CONFIG HINTS "@Kokkos_DIR@")
+set_and_check(RRTMGP_DATA_DIR "@RRTMGP_DATA_DIR@")
+set_and_check(RRTMGP_EXAMPLE_DIR "${PACKAGE_PREFIX_DIR}/@CMAKE_INSTALL_DATADIR@/rrtmgp-cpp/examples")
+set(RRTMGP_SOURCE_COMMIT "71693e7490db0908a625eadb6ac3f23967de2c7d")
+include("${CMAKE_CURRENT_LIST_DIR}/RrtmgpTargets.cmake")
+check_required_components(Rrtmgp)

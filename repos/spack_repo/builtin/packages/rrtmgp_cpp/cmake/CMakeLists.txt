@@ -1,0 +1,47 @@
+cmake_minimum_required(VERSION 3.24)
+project(Rrtmgp VERSION 26.11 LANGUAGES C CXX)
+include(GNUInstallDirs)
+include(CMakePackageConfigHelpers)
+find_package(Kokkos 5.1 CONFIG REQUIRED)
+get_filename_component(source "${CMAKE_CURRENT_SOURCE_DIR}/../cpp" ABSOLUTE)
+add_library(rrtmgp
+  ${source}/rrtmgp/kernels/mo_gas_optics_kernels.cpp
+  ${source}/rrtmgp/mo_rrtmgp_util_reorder.cpp
+  ${source}/rte/expand_and_transpose.cpp
+  ${source}/rte/kernels/mo_fluxes_broadband_kernels.cpp
+  ${source}/rte/kernels/mo_optical_props_kernels.cpp
+  ${source}/rte/kernels/mo_rte_solver_kernels.cpp
+  ${source}/examples/mo_load_coefficients.cpp
+  ${source}/examples/all-sky/mo_garand_atmos_io.cpp
+  ${source}/examples/all-sky/mo_load_cloud_coefficients.cpp
+  ${source}/extensions/fluxes_byband/mo_fluxes_byband_kernels.cpp)
+add_library(Rrtmgp::rrtmgp ALIAS rrtmgp)
+set_target_properties(rrtmgp PROPERTIES POSITION_INDEPENDENT_CODE ON)
+target_compile_features(rrtmgp PUBLIC cxx_std_20)
+target_compile_definitions(rrtmgp PUBLIC RRTMGP_ENABLE_KOKKOS)
+target_link_libraries(rrtmgp PUBLIC Kokkos::kokkos "${RRTMGP_NETCDF_LIBRARY}")
+target_include_directories(rrtmgp SYSTEM PUBLIC "${RRTMGP_NETCDF_INCLUDE_DIR}")
+set(header_dirs . rte rte/kernels rrtmgp rrtmgp/kernels examples examples/all-sky
+                extensions/cloud_optics extensions/fluxes_byband)
+foreach(dir IN LISTS header_dirs)
+  target_include_directories(rrtmgp PUBLIC
+    $<BUILD_INTERFACE:${source}/${dir}>
+    $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/rrtmgp/${dir}>)
+  file(GLOB headers "${source}/${dir}/*.h")
+  install(FILES ${headers} DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/rrtmgp/${dir}")
+endforeach()
+install(TARGETS rrtmgp EXPORT RrtmgpTargets
+  ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+  LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+  RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+install(EXPORT RrtmgpTargets NAMESPACE Rrtmgp:: DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/Rrtmgp)
+configure_package_config_file(RrtmgpConfig.cmake.in RrtmgpConfig.cmake
+  INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/Rrtmgp)
+write_basic_package_version_file(RrtmgpConfigVersion.cmake VERSION 26.11
+  COMPATIBILITY ExactVersion)
+install(FILES ${CMAKE_CURRENT_BINARY_DIR}/RrtmgpConfig.cmake
+              ${CMAKE_CURRENT_BINARY_DIR}/RrtmgpConfigVersion.cmake
+  DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/Rrtmgp)
+install(FILES ${source}/examples/all-sky/rrtmgp_allsky.cpp
+  DESTINATION ${CMAKE_INSTALL_DATADIR}/rrtmgp-cpp/examples)
+install(FILES ${source}/../LICENSE DESTINATION ${CMAKE_INSTALL_DATADIR}/rrtmgp-cpp)
