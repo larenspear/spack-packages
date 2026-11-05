@@ -20,6 +20,13 @@ class Kokkos(CMakePackage, CudaPackage, ROCmPackage):
 
     tags = ["e4s"]
 
+    variant(
+        "legacy_view",
+        default=False,
+        when="@5.0:5.1",
+        description="Use the legacy Kokkos View implementation required by EKAT",
+    )
+
     test_requires_compiler = True
 
     maintainers("cedricchevalier19", "nmm0", "lucbv", "tpadioleau")
@@ -584,6 +591,11 @@ class Kokkos(CMakePackage, CudaPackage, ROCmPackage):
         # TODO deprecation v4: remove
         if self.version == Version("4.7.00"):
             options.append(self.define("Kokkos_ENABLE_IMPL_VIEW_LEGACY", True))
+
+        if "legacy_view" in self.spec.variants:
+            options.append(
+                self.define_from_variant("Kokkos_ENABLE_IMPL_VIEW_LEGACY", "legacy_view")
+            )
 
         # Remove duplicate options
         return dedupe(options)

@@ -19,6 +19,13 @@ class Catch2(CMakePackage):
 
     license("BSL-1.0")
 
+    # E3SM snapshot pinned by EKAT in ERF 26.11; retain its upstream numeric version.
+    version(
+        "2.13.8.ekat",
+        sha256="50f3951e1995b9838d40c75a92cbca3a5fd8f16e8390eec9221236f3b92ceb1f",
+        url="https://github.com/E3SM-Project/Catch2/archive/0d70154ddf178cf99bca140669e0618267e51682.tar.gz",
+    )
+
     # In-Development
     version("develop", branch="devel")
 
@@ -107,6 +114,9 @@ class Catch2(CMakePackage):
     version("1.4.0", sha256="57512b298ca3e2ff44e87c17c926d5f9edf29e13549480e912fddfab5ba63b74")
     version("1.3.5", sha256="f15730d81b4173fb860ce3561768de7d41bbefb67dc031d7d1f5ae2c07f0a472")
     version("1.3.0", sha256="245f6ee73e2fea66311afa1da59e5087ddab8b37ce64994ad88506e8af28c6ac")
+
+    # The 2.x build uses CMake policies removed in CMake 4.
+    depends_on("cmake@:3", type="build", when="@2.13.8.ekat")
 
     depends_on("cxx", type="build")  # generated
     depends_on("cmake@3.16:", type="build", when="@3.8:")
