@@ -1,0 +1,17 @@
+The upstream point-I/O test uses an NL0 fixture. With ERF's NL1 switches,
+W3IOGR calls INSNL1 and needs the auxiliary-grid pointers initialized, as
+ww3_outp already does. Preserve the original I/O assertions.
+
+--- a/regtests/unittests/test_io_points_bin.F90
++++ b/regtests/unittests/test_io_points_bin.F90
+@@ -27,6 +27,10 @@
+   call w3setg(1, 6, 6)
+   call w3ndat(6, 6)
+   call w3setw(1, 6, 6)
++#ifdef W3_NL1
++  call w3naux(6, 6)
++  call w3seta(1, 6, 6)
++#endif
+   call w3nout(6, 6)
+   call w3seto(1, 6, 6)
+ 

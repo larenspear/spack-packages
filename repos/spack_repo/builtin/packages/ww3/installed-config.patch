@@ -1,0 +1,53 @@
+--- a/cmake/WW3-package-config.cmake.in
++++ b/cmake/WW3-package-config.cmake.in
+@@ -1,22 +1,12 @@
+ @PACKAGE_INIT@
+-
+-#@PROJECT_NAME@-config.cmake
+-#
+-# Imported interface targets provided:
+-#  * @PROJECT_NAME@::@PROJECT_NAME@_4 - real32 library target
+-#  * @PROJECT_NAME@::@PROJECT_NAME@_d - mixed library target
+-
+-# Include targets file.  This will create IMPORTED target @PROJECT_NAME@
++include(CMakeFindDependencyMacro)
++find_dependency(MPI COMPONENTS Fortran)
++if (@NETCDF@)
++  set(_ww3_module_path "${CMAKE_MODULE_PATH}")
++  list(PREPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}")
++  find_dependency(NetCDF COMPONENTS Fortran)
++  set(CMAKE_MODULE_PATH "${_ww3_module_path}")
++  unset(_ww3_module_path)
++endif()
+ include("${CMAKE_CURRENT_LIST_DIR}/WW3-targets.cmake")
+-
+-include(CMakeFindDependencyMacro)
+-
+-#find_dependency(PNG)
+-#find_dependency(bacio)
+-
+-#get_target_property(@PROJECT_NAME@_BUILD_TYPES @PROJECT_NAME@::@PROJECT_NAME@_4 IMPORTED_CONFIGURATIONS)
+-
+-#check_required_components("WW3")
+-
+-#get_target_property(location @PROJECT_NAME@::@PROJECT_NAME@_4 LOCATION)
+-#message(STATUS "Found @PROJECT_NAME@: ${location} (found version \"@PROJECT_VERSION@\")")
++check_required_components(WW3)
+--- a/model/src/CMakeLists.txt
++++ b/model/src/CMakeLists.txt
+@@ -22,7 +22,7 @@
+ add_library(WW3::WW3 ALIAS ww3_lib)
+ 
+ # Re-name library on disk to just libww3 instead of libww3_lib
+-set_target_properties(ww3_lib PROPERTIES OUTPUT_NAME "ww3")
++set_target_properties(ww3_lib PROPERTIES OUTPUT_NAME "ww3" EXPORT_NAME "WW3")
+ set_target_properties(ww3_lib PROPERTIES Fortran_MODULE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/mod")
+ 
+ foreach(switch ${switches})
+@@ -240,3 +240,6 @@
+   NAMESPACE WW3::
+   FILE WW3-targets.cmake
+   DESTINATION ${CONFIG_INSTALL_DESTINATION})
++
++install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/../../cmake/FindNetCDF.cmake
++  DESTINATION ${CONFIG_INSTALL_DESTINATION})
