@@ -1,0 +1,7 @@
+cmake_minimum_required(VERSION 3.24)
+project(EkatConsumer LANGUAGES C CXX)
+find_package(Ekat 2.1 CONFIG REQUIRED COMPONENTS Core KokkosUtils Pack Algorithm Logging YamlParser CatchMain DefaultTestSession)
+add_executable(consumer consumer.cpp)
+target_link_libraries(consumer PRIVATE ekat::AllLibs ekat::CatchMain ekat::DefaultTestSession)
+enable_testing()
+add_test(NAME installed-ekat COMMAND consumer)

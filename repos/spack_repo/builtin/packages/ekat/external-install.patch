@@ -1,0 +1,79 @@
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -50,6 +50,7 @@
+ option (EKAT_TEST_LAUNCHER_BUFFER "Whether test-launcher should buffer all out and print all at once. Useful for avoiding interleaving output when multiple tests are running concurrently" OFF)
+ option (EKAT_TEST_LAUNCHER_MANAGE_RESOURCES "Whether test-launcher should try to manage thread distribution. Requires a ctest resource file to be effective." OFF)
+ set (EKAT_PROFILING_TOOL "NONE" CACHE STRING "Profiling tool to be used")
++option (EKAT_ALLOW_INTERNAL_TPLS "Allow building bundled or fetched dependencies" ON)
+ option (EKAT_ENABLE_TESTS "Whether tests should be built." ON)
+ option (EKAT_DISABLE_TPL_WARNINGS "Whether we should suppress warnings when compiling TPLs." OFF)
+ 
+@@ -180,7 +181,7 @@
+   INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/ekat)
+ 
+ WRITE_BASIC_PACKAGE_VERSION_FILE("${EKAT_BINARY_DIR}/EkatConfigVersion.cmake"
+-    VERSION ${EKAT_VERSION_MAJOR}.${EKAT_VERSION_MINOR}.${EKAT_VERSION_PATCH}.
++    VERSION ${EKAT_VERSION_MAJOR}.${EKAT_VERSION_MINOR}.${EKAT_VERSION_PATCH}
+     COMPATIBILITY SameMajorVersion)
+ 
+ # Install the EkatConfig*.cmake files
+--- a/src/testing-support/CMakeLists.txt
++++ b/src/testing-support/CMakeLists.txt
+@@ -36,7 +36,7 @@
+ 
+ # A small lib for Catch2 main executable, so we don't rebuild it
+ # for every single unit test
+-add_library(ekat_catchmain ekat_catch_main.cpp)
++add_library(ekat_catchmain STATIC ekat_catch_main.cpp)
+ target_link_libraries(ekat_catchmain PUBLIC ekat::Core)
+ target_link_libraries(ekat_catchmain PUBLIC Catch2::Catch2)
+ 
+@@ -63,7 +63,7 @@
+ # A small lib implementing default versions of ekat_initialize_test_session() and
+ # ekat_finalize_test_session functions that ekat_catch_main.cpp requires
+ 
+-add_library(ekat_testsession ekat_test_session.cpp)
++add_library(ekat_testsession STATIC ekat_test_session.cpp)
+ target_link_libraries(ekat_testsession PUBLIC ekat::Core)
+ 
+ if (TARGET ekat::KokkosUtils)
+--- a/cmake/tpls/EkatBuildKokkos.cmake
++++ b/cmake/tpls/EkatBuildKokkos.cmake
+@@ -1,3 +1,7 @@
++if (NOT EKAT_ALLOW_INTERNAL_TPLS)
++  message(FATAL_ERROR "EKAT requires an installed external dependency; internal builds are disabled")
++endif()
++
+ # Build Kokkos from the submodule, unless already built in this CMake project
+ if (NOT TARGET Kokkos::kokkos)
+   message (STATUS "No Kokkos target already defined. Building locally from submodule")
+--- a/cmake/tpls/EkatBuildSpdlog.cmake
++++ b/cmake/tpls/EkatBuildSpdlog.cmake
+@@ -1,3 +1,7 @@
++if (NOT EKAT_ALLOW_INTERNAL_TPLS)
++  message(FATAL_ERROR "EKAT requires an installed external dependency; internal builds are disabled")
++endif()
++
+ # Fetch and build spdlog via FetchContent
+ include (FetchContent)
+ include (EkatUtils)
+--- a/cmake/tpls/EkatBuildYamlCpp.cmake
++++ b/cmake/tpls/EkatBuildYamlCpp.cmake
+@@ -1,3 +1,7 @@
++if (NOT EKAT_ALLOW_INTERNAL_TPLS)
++  message(FATAL_ERROR "EKAT requires an installed external dependency; internal builds are disabled")
++endif()
++
+ # Fetch and build yaml-cpp via FetchContent
+ include (FetchContent)
+ include (EkatUtils)
+--- a/cmake/tpls/EkatBuildCatch2.cmake
++++ b/cmake/tpls/EkatBuildCatch2.cmake
+@@ -1,3 +1,7 @@
++if (NOT EKAT_ALLOW_INTERNAL_TPLS)
++  message(FATAL_ERROR "EKAT requires an installed external dependency; internal builds are disabled")
++endif()
++
+ # Fetch Catch2 (single_include) via FetchContent
+ include (FetchContent)
+ include (EkatUtils)
