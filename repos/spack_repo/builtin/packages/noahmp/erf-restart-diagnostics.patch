@@ -1,0 +1,370 @@
+Preserve cached land-output fields across a restart before the next land update.
+
+--- a/drivers/erf/NoahmpWriteRestartMod.F90
++++ b/drivers/erf/NoahmpWriteRestartMod.F90
+@@ -55,6 +55,18 @@
+                              id_snfr, id_mc_bcphi, id_mc_bcpho, id_mc_ocphi, &    ! SNICAR freeze rate +
+                              id_mc_ocpho, id_mc_dust1, id_mc_dust2, &             ! mass concentrations
+                              id_mc_dust3, id_mc_dust4, id_mc_dust5
++
++   ! Cached land-output fields must survive until the next land update.
++   integer, save, private :: id_diag_terrain, id_diag_shbxy, id_diag_evbxy, id_diag_vegfra, &
++                             id_diag_gvfmin, id_diag_gvfmax, id_diag_albsfcdirxy, id_diag_albsfcdifxy, &
++                             id_diag_savxy, id_diag_sagxy, id_diag_pahxy, id_diag_firaxy, &
++                             id_diag_hfx, id_diag_lh, id_diag_ghbxy, id_diag_canhsxy, &
++                             id_diag_tau_ew, id_diag_tau_ns, id_diag_t2mvxy, id_diag_t2mbxy, &
++                             id_diag_q2mvxy, id_diag_q2mbxy, id_diag_tradxy, id_diag_fvegxy, &
++                             id_diag_tgvxy, id_diag_tgbxy, id_diag_shgxy, id_diag_shcxy, &
++                             id_diag_evgxy, id_diag_evcxy, id_diag_trxy, id_diag_runsfxy, &
++                             id_diag_runsbxy, id_diag_ecanxy, id_diag_edirxy, id_diag_etranxy, &
++                             id_diag_fsaxy, id_diag_rs, id_diag_z0, id_diag_znt
+ 
+ contains
+ 
+@@ -271,6 +283,49 @@
+          if (allocated(NoahmpIO%MassConcDUST5XY)) &
+             call check_nc(nf90_def_var(ncid, "MassConcDUST5XY", rtype, (/nx, nsnow_d, ny/), id_mc_dust5), "def_var MassConcDUST5XY")
+ 
++
++         ! Cached land diagnostics, serialized at working precision.
++         call check_nc(nf90_def_var(ncid, "TERRAIN", rtype, (/nx, ny/), id_diag_terrain), "def_var TERRAIN")
++         call check_nc(nf90_def_var(ncid, "SHBXY", rtype, (/nx, ny/), id_diag_shbxy), "def_var SHBXY")
++         call check_nc(nf90_def_var(ncid, "EVBXY", rtype, (/nx, ny/), id_diag_evbxy), "def_var EVBXY")
++         call check_nc(nf90_def_var(ncid, "VEGFRA", rtype, (/nx, ny/), id_diag_vegfra), "def_var VEGFRA")
++         call check_nc(nf90_def_var(ncid, "GVFMIN", rtype, (/nx, ny/), id_diag_gvfmin), "def_var GVFMIN")
++         call check_nc(nf90_def_var(ncid, "GVFMAX", rtype, (/nx, ny/), id_diag_gvfmax), "def_var GVFMAX")
++         call check_nc(nf90_def_var(ncid, "ALBSFCDIRXY", rtype, (/nx, nrad_d, ny/), id_diag_albsfcdirxy), "def_var ALBSFCDIRXY")
++         call check_nc(nf90_def_var(ncid, "ALBSFCDIFXY", rtype, (/nx, nrad_d, ny/), id_diag_albsfcdifxy), "def_var ALBSFCDIFXY")
++         call check_nc(nf90_def_var(ncid, "SAVXY", rtype, (/nx, ny/), id_diag_savxy), "def_var SAVXY")
++         call check_nc(nf90_def_var(ncid, "SAGXY", rtype, (/nx, ny/), id_diag_sagxy), "def_var SAGXY")
++         call check_nc(nf90_def_var(ncid, "PAHXY", rtype, (/nx, ny/), id_diag_pahxy), "def_var PAHXY")
++         call check_nc(nf90_def_var(ncid, "FIRAXY", rtype, (/nx, ny/), id_diag_firaxy), "def_var FIRAXY")
++         call check_nc(nf90_def_var(ncid, "HFX", rtype, (/nx, ny/), id_diag_hfx), "def_var HFX")
++         call check_nc(nf90_def_var(ncid, "LH", rtype, (/nx, ny/), id_diag_lh), "def_var LH")
++         call check_nc(nf90_def_var(ncid, "GHBXY", rtype, (/nx, ny/), id_diag_ghbxy), "def_var GHBXY")
++         call check_nc(nf90_def_var(ncid, "CANHSXY", rtype, (/nx, ny/), id_diag_canhsxy), "def_var CANHSXY")
++         call check_nc(nf90_def_var(ncid, "TAU_EW", rtype, (/nx, ny/), id_diag_tau_ew), "def_var TAU_EW")
++         call check_nc(nf90_def_var(ncid, "TAU_NS", rtype, (/nx, ny/), id_diag_tau_ns), "def_var TAU_NS")
++         call check_nc(nf90_def_var(ncid, "T2MVXY", rtype, (/nx, ny/), id_diag_t2mvxy), "def_var T2MVXY")
++         call check_nc(nf90_def_var(ncid, "T2MBXY", rtype, (/nx, ny/), id_diag_t2mbxy), "def_var T2MBXY")
++         call check_nc(nf90_def_var(ncid, "Q2MVXY", rtype, (/nx, ny/), id_diag_q2mvxy), "def_var Q2MVXY")
++         call check_nc(nf90_def_var(ncid, "Q2MBXY", rtype, (/nx, ny/), id_diag_q2mbxy), "def_var Q2MBXY")
++         call check_nc(nf90_def_var(ncid, "TRADXY", rtype, (/nx, ny/), id_diag_tradxy), "def_var TRADXY")
++         call check_nc(nf90_def_var(ncid, "FVEGXY", rtype, (/nx, ny/), id_diag_fvegxy), "def_var FVEGXY")
++         call check_nc(nf90_def_var(ncid, "TGVXY", rtype, (/nx, ny/), id_diag_tgvxy), "def_var TGVXY")
++         call check_nc(nf90_def_var(ncid, "TGBXY", rtype, (/nx, ny/), id_diag_tgbxy), "def_var TGBXY")
++         call check_nc(nf90_def_var(ncid, "SHGXY", rtype, (/nx, ny/), id_diag_shgxy), "def_var SHGXY")
++         call check_nc(nf90_def_var(ncid, "SHCXY", rtype, (/nx, ny/), id_diag_shcxy), "def_var SHCXY")
++         call check_nc(nf90_def_var(ncid, "EVGXY", rtype, (/nx, ny/), id_diag_evgxy), "def_var EVGXY")
++         call check_nc(nf90_def_var(ncid, "EVCXY", rtype, (/nx, ny/), id_diag_evcxy), "def_var EVCXY")
++         call check_nc(nf90_def_var(ncid, "TRXY", rtype, (/nx, ny/), id_diag_trxy), "def_var TRXY")
++         call check_nc(nf90_def_var(ncid, "RUNSFXY", rtype, (/nx, ny/), id_diag_runsfxy), "def_var RUNSFXY")
++         call check_nc(nf90_def_var(ncid, "RUNSBXY", rtype, (/nx, ny/), id_diag_runsbxy), "def_var RUNSBXY")
++         call check_nc(nf90_def_var(ncid, "ECANXY", rtype, (/nx, ny/), id_diag_ecanxy), "def_var ECANXY")
++         call check_nc(nf90_def_var(ncid, "EDIRXY", rtype, (/nx, ny/), id_diag_edirxy), "def_var EDIRXY")
++         call check_nc(nf90_def_var(ncid, "ETRANXY", rtype, (/nx, ny/), id_diag_etranxy), "def_var ETRANXY")
++         call check_nc(nf90_def_var(ncid, "FSAXY", rtype, (/nx, ny/), id_diag_fsaxy), "def_var FSAXY")
++         call check_nc(nf90_def_var(ncid, "RS", rtype, (/nx, ny/), id_diag_rs), "def_var RS")
++         call check_nc(nf90_def_var(ncid, "Z0", rtype, (/nx, ny/), id_diag_z0), "def_var Z0")
++         call check_nc(nf90_def_var(ncid, "ZNT", rtype, (/nx, ny/), id_diag_znt), "def_var ZNT")
++
+          call check_nc(nf90_enddef(ncid), "enddef")
+       end if
+ 
+@@ -397,6 +452,49 @@
+       if (allocated(NoahmpIO%MassConcDUST4XY)) call check_nc(nf90_put_var(ncid, id_mc_dust4, NoahmpIO%MassConcDUST4XY, start=(/start(1),1,start(2)/), count=(/count(1),NoahmpIO%NSNOW,count(2)/)), "put_var MassConcDUST4XY")
+       if (allocated(NoahmpIO%MassConcDUST5XY)) call check_nc(nf90_put_var(ncid, id_mc_dust5, NoahmpIO%MassConcDUST5XY, start=(/start(1),1,start(2)/), count=(/count(1),NoahmpIO%NSNOW,count(2)/)), "put_var MassConcDUST5XY")
+ 
++
++      ! Restore output continuity even when the land timestep exceeds the host timestep.
++      call check_nc(nf90_put_var(ncid, id_diag_terrain, NoahmpIO%TERRAIN, start=start, count=count), "put_var TERRAIN")
++      call check_nc(nf90_put_var(ncid, id_diag_shbxy, NoahmpIO%SHBXY, start=start, count=count), "put_var SHBXY")
++      call check_nc(nf90_put_var(ncid, id_diag_evbxy, NoahmpIO%EVBXY, start=start, count=count), "put_var EVBXY")
++      call check_nc(nf90_put_var(ncid, id_diag_vegfra, NoahmpIO%VEGFRA, start=start, count=count), "put_var VEGFRA")
++      call check_nc(nf90_put_var(ncid, id_diag_gvfmin, NoahmpIO%GVFMIN, start=start, count=count), "put_var GVFMIN")
++      call check_nc(nf90_put_var(ncid, id_diag_gvfmax, NoahmpIO%GVFMAX, start=start, count=count), "put_var GVFMAX")
++      call check_nc(nf90_put_var(ncid, id_diag_albsfcdirxy, NoahmpIO%ALBSFCDIRXY, start=(/start(1),1,start(2)/), count=(/count(1),NoahmpIO%NUMRAD,count(2)/)), "put_var ALBSFCDIRXY")
++      call check_nc(nf90_put_var(ncid, id_diag_albsfcdifxy, NoahmpIO%ALBSFCDIFXY, start=(/start(1),1,start(2)/), count=(/count(1),NoahmpIO%NUMRAD,count(2)/)), "put_var ALBSFCDIFXY")
++      call check_nc(nf90_put_var(ncid, id_diag_savxy, NoahmpIO%SAVXY, start=start, count=count), "put_var SAVXY")
++      call check_nc(nf90_put_var(ncid, id_diag_sagxy, NoahmpIO%SAGXY, start=start, count=count), "put_var SAGXY")
++      call check_nc(nf90_put_var(ncid, id_diag_pahxy, NoahmpIO%PAHXY, start=start, count=count), "put_var PAHXY")
++      call check_nc(nf90_put_var(ncid, id_diag_firaxy, NoahmpIO%FIRAXY, start=start, count=count), "put_var FIRAXY")
++      call check_nc(nf90_put_var(ncid, id_diag_hfx, NoahmpIO%HFX, start=start, count=count), "put_var HFX")
++      call check_nc(nf90_put_var(ncid, id_diag_lh, NoahmpIO%LH, start=start, count=count), "put_var LH")
++      call check_nc(nf90_put_var(ncid, id_diag_ghbxy, NoahmpIO%GHBXY, start=start, count=count), "put_var GHBXY")
++      call check_nc(nf90_put_var(ncid, id_diag_canhsxy, NoahmpIO%CANHSXY, start=start, count=count), "put_var CANHSXY")
++      call check_nc(nf90_put_var(ncid, id_diag_tau_ew, NoahmpIO%TAU_EW, start=start, count=count), "put_var TAU_EW")
++      call check_nc(nf90_put_var(ncid, id_diag_tau_ns, NoahmpIO%TAU_NS, start=start, count=count), "put_var TAU_NS")
++      call check_nc(nf90_put_var(ncid, id_diag_t2mvxy, NoahmpIO%T2MVXY, start=start, count=count), "put_var T2MVXY")
++      call check_nc(nf90_put_var(ncid, id_diag_t2mbxy, NoahmpIO%T2MBXY, start=start, count=count), "put_var T2MBXY")
++      call check_nc(nf90_put_var(ncid, id_diag_q2mvxy, NoahmpIO%Q2MVXY, start=start, count=count), "put_var Q2MVXY")
++      call check_nc(nf90_put_var(ncid, id_diag_q2mbxy, NoahmpIO%Q2MBXY, start=start, count=count), "put_var Q2MBXY")
++      call check_nc(nf90_put_var(ncid, id_diag_tradxy, NoahmpIO%TRADXY, start=start, count=count), "put_var TRADXY")
++      call check_nc(nf90_put_var(ncid, id_diag_fvegxy, NoahmpIO%FVEGXY, start=start, count=count), "put_var FVEGXY")
++      call check_nc(nf90_put_var(ncid, id_diag_tgvxy, NoahmpIO%TGVXY, start=start, count=count), "put_var TGVXY")
++      call check_nc(nf90_put_var(ncid, id_diag_tgbxy, NoahmpIO%TGBXY, start=start, count=count), "put_var TGBXY")
++      call check_nc(nf90_put_var(ncid, id_diag_shgxy, NoahmpIO%SHGXY, start=start, count=count), "put_var SHGXY")
++      call check_nc(nf90_put_var(ncid, id_diag_shcxy, NoahmpIO%SHCXY, start=start, count=count), "put_var SHCXY")
++      call check_nc(nf90_put_var(ncid, id_diag_evgxy, NoahmpIO%EVGXY, start=start, count=count), "put_var EVGXY")
++      call check_nc(nf90_put_var(ncid, id_diag_evcxy, NoahmpIO%EVCXY, start=start, count=count), "put_var EVCXY")
++      call check_nc(nf90_put_var(ncid, id_diag_trxy, NoahmpIO%TRXY, start=start, count=count), "put_var TRXY")
++      call check_nc(nf90_put_var(ncid, id_diag_runsfxy, NoahmpIO%RUNSFXY, start=start, count=count), "put_var RUNSFXY")
++      call check_nc(nf90_put_var(ncid, id_diag_runsbxy, NoahmpIO%RUNSBXY, start=start, count=count), "put_var RUNSBXY")
++      call check_nc(nf90_put_var(ncid, id_diag_ecanxy, NoahmpIO%ECANXY, start=start, count=count), "put_var ECANXY")
++      call check_nc(nf90_put_var(ncid, id_diag_edirxy, NoahmpIO%EDIRXY, start=start, count=count), "put_var EDIRXY")
++      call check_nc(nf90_put_var(ncid, id_diag_etranxy, NoahmpIO%ETRANXY, start=start, count=count), "put_var ETRANXY")
++      call check_nc(nf90_put_var(ncid, id_diag_fsaxy, NoahmpIO%FSAXY, start=start, count=count), "put_var FSAXY")
++      call check_nc(nf90_put_var(ncid, id_diag_rs, NoahmpIO%RS, start=start, count=count), "put_var RS")
++      call check_nc(nf90_put_var(ncid, id_diag_z0, NoahmpIO%Z0, start=start, count=count), "put_var Z0")
++      call check_nc(nf90_put_var(ncid, id_diag_znt, NoahmpIO%ZNT, start=start, count=count), "put_var ZNT")
++
+       if (NoahmpIO%blkid == (maxblocks-1)) then
+          call check_nc(nf90_close(ncid), "close")
+       end if
+--- a/drivers/erf/NoahmpReadRestartMod.F90
++++ b/drivers/erf/NoahmpReadRestartMod.F90
+@@ -180,6 +180,49 @@
+       if (allocated(NoahmpIO%MassConcDUST4XY)) call get3d(ncid, "MassConcDUST4XY", NoahmpIO%MassConcDUST4XY, start, count, NoahmpIO%NSNOW, .false.)
+       if (allocated(NoahmpIO%MassConcDUST5XY)) call get3d(ncid, "MassConcDUST5XY", NoahmpIO%MassConcDUST5XY, start, count, NoahmpIO%NSNOW, .false.)
+ 
++
++      ! Pre-diagnostic checkpoints leave these fields at their cold-init values.
++      call get2d(ncid, "TERRAIN", NoahmpIO%TERRAIN, start, count, .false.)
++      call get2d(ncid, "SHBXY", NoahmpIO%SHBXY, start, count, .false.)
++      call get2d(ncid, "EVBXY", NoahmpIO%EVBXY, start, count, .false.)
++      call get2d(ncid, "VEGFRA", NoahmpIO%VEGFRA, start, count, .false.)
++      call get2d(ncid, "GVFMIN", NoahmpIO%GVFMIN, start, count, .false.)
++      call get2d(ncid, "GVFMAX", NoahmpIO%GVFMAX, start, count, .false.)
++      call get3d(ncid, "ALBSFCDIRXY", NoahmpIO%ALBSFCDIRXY, start, count, NoahmpIO%NUMRAD, .false.)
++      call get3d(ncid, "ALBSFCDIFXY", NoahmpIO%ALBSFCDIFXY, start, count, NoahmpIO%NUMRAD, .false.)
++      call get2d(ncid, "SAVXY", NoahmpIO%SAVXY, start, count, .false.)
++      call get2d(ncid, "SAGXY", NoahmpIO%SAGXY, start, count, .false.)
++      call get2d(ncid, "PAHXY", NoahmpIO%PAHXY, start, count, .false.)
++      call get2d(ncid, "FIRAXY", NoahmpIO%FIRAXY, start, count, .false.)
++      call get2d(ncid, "HFX", NoahmpIO%HFX, start, count, .false.)
++      call get2d(ncid, "LH", NoahmpIO%LH, start, count, .false.)
++      call get2d(ncid, "GHBXY", NoahmpIO%GHBXY, start, count, .false.)
++      call get2d(ncid, "CANHSXY", NoahmpIO%CANHSXY, start, count, .false.)
++      call get2d(ncid, "TAU_EW", NoahmpIO%TAU_EW, start, count, .false.)
++      call get2d(ncid, "TAU_NS", NoahmpIO%TAU_NS, start, count, .false.)
++      call get2d(ncid, "T2MVXY", NoahmpIO%T2MVXY, start, count, .false.)
++      call get2d(ncid, "T2MBXY", NoahmpIO%T2MBXY, start, count, .false.)
++      call get2d(ncid, "Q2MVXY", NoahmpIO%Q2MVXY, start, count, .false.)
++      call get2d(ncid, "Q2MBXY", NoahmpIO%Q2MBXY, start, count, .false.)
++      call get2d(ncid, "TRADXY", NoahmpIO%TRADXY, start, count, .false.)
++      call get2d(ncid, "FVEGXY", NoahmpIO%FVEGXY, start, count, .false.)
++      call get2d(ncid, "TGVXY", NoahmpIO%TGVXY, start, count, .false.)
++      call get2d(ncid, "TGBXY", NoahmpIO%TGBXY, start, count, .false.)
++      call get2d(ncid, "SHGXY", NoahmpIO%SHGXY, start, count, .false.)
++      call get2d(ncid, "SHCXY", NoahmpIO%SHCXY, start, count, .false.)
++      call get2d(ncid, "EVGXY", NoahmpIO%EVGXY, start, count, .false.)
++      call get2d(ncid, "EVCXY", NoahmpIO%EVCXY, start, count, .false.)
++      call get2d(ncid, "TRXY", NoahmpIO%TRXY, start, count, .false.)
++      call get2d(ncid, "RUNSFXY", NoahmpIO%RUNSFXY, start, count, .false.)
++      call get2d(ncid, "RUNSBXY", NoahmpIO%RUNSBXY, start, count, .false.)
++      call get2d(ncid, "ECANXY", NoahmpIO%ECANXY, start, count, .false.)
++      call get2d(ncid, "EDIRXY", NoahmpIO%EDIRXY, start, count, .false.)
++      call get2d(ncid, "ETRANXY", NoahmpIO%ETRANXY, start, count, .false.)
++      call get2d(ncid, "FSAXY", NoahmpIO%FSAXY, start, count, .false.)
++      call get2d(ncid, "RS", NoahmpIO%RS, start, count, .false.)
++      call get2d(ncid, "Z0", NoahmpIO%Z0, start, count, .false.)
++      call get2d(ncid, "ZNT", NoahmpIO%ZNT, start, count, .false.)
++
+       if (NoahmpIO%blkid == (maxblocks-1)) then
+          call check_nc(nf90_close(ncid), "close")
+       end if
+--- a/drivers/erf/tests/test_io_restart.F90
++++ b/drivers/erf/tests/test_io_restart.F90
+@@ -34,7 +34,7 @@
+   implicit none
+ 
+   ! visit modes for the single-source-of-truth state list
+-  integer, parameter :: FILL = 1, ZERO = 2, CHECK = 3
++  integer, parameter :: FILL = 1, ZERO = 2, CHECK = 3, CHECK_ZERO = 4
+ 
+   type(NoahmpIO_type), pointer :: blk
+   integer :: comm
+@@ -94,6 +94,18 @@
+      call tio_mpi_finalize()
+      call tio_finish("test_io_restart")
+ 
++  case ("legacy")
++     dir = "rst_legacy"
++     call visit_state(blk, FILL)
++     call NoahmpWriteRestart(blk, trim(dir), 1)
++     call hide_diagnostics(trim(dir))
++     call visit_state(blk, ZERO)
++     call NoahmpReadRestart(blk, trim(dir), 1)
++     call visit_state(blk, CHECK, diagnostics=.false.)
++     call visit_diagnostics(blk, CHECK_ZERO)
++     call tio_mpi_finalize()
++     call tio_finish("test_io_restart legacy")
++
+   case default
+      write(0,'(A)') "test_io_restart: unknown selector '"//trim(which)//"'"
+      call exit(2)
+@@ -120,9 +132,17 @@
+   ! drift between filling and verifying. Optional fields are handled uniformly:
+   ! skipped in every mode when unallocated (matching the writer's allocated()
+   ! guard), so they neither get written nor asserted.
+-  subroutine visit_state(b, mode)
++  subroutine visit_state(b, mode, diagnostics)
+     type(NoahmpIO_type), intent(inout) :: b
+     integer,             intent(in)    :: mode
++
++    logical, optional, intent(in) :: diagnostics
++
++    if (present(diagnostics)) then
++       if (diagnostics) call visit_diagnostics(b, mode)
++    else
++       call visit_diagnostics(b, mode)
++    end if
+ 
+     ! --- soil (3D) ---
+     call op3d(b%TSLB,    1, mode, "TSLB")
+@@ -221,6 +241,117 @@
+     if (allocated(b%DUST5XY))  call op3d (b%DUST5XY, 101, mode, "DUST5XY")
+   end subroutine visit_state
+ 
++  subroutine visit_diagnostics(b, mode)
++    type(NoahmpIO_type), intent(inout) :: b
++    integer, intent(in) :: mode
++    ! Distinct patterns test cached output before any new physics step.
++    call op2d(b%TERRAIN, 102, mode, "TERRAIN")
++    call op2d(b%SHBXY, 103, mode, "SHBXY")
++    call op2d(b%EVBXY, 104, mode, "EVBXY")
++    call op2d(b%VEGFRA, 105, mode, "VEGFRA")
++    call op2d(b%GVFMIN, 106, mode, "GVFMIN")
++    call op2d(b%GVFMAX, 107, mode, "GVFMAX")
++    call op3d(b%ALBSFCDIRXY, 108, mode, "ALBSFCDIRXY")
++    call op3d(b%ALBSFCDIFXY, 109, mode, "ALBSFCDIFXY")
++    call op2d(b%SAVXY, 110, mode, "SAVXY")
++    call op2d(b%SAGXY, 111, mode, "SAGXY")
++    call op2d(b%PAHXY, 112, mode, "PAHXY")
++    call op2d(b%FIRAXY, 113, mode, "FIRAXY")
++    call op2d(b%HFX, 114, mode, "HFX")
++    call op2d(b%LH, 115, mode, "LH")
++    call op2d(b%GHBXY, 116, mode, "GHBXY")
++    call op2d(b%CANHSXY, 117, mode, "CANHSXY")
++    call op2d(b%TAU_EW, 118, mode, "TAU_EW")
++    call op2d(b%TAU_NS, 119, mode, "TAU_NS")
++    call op2d(b%T2MVXY, 120, mode, "T2MVXY")
++    call op2d(b%T2MBXY, 121, mode, "T2MBXY")
++    call op2d(b%Q2MVXY, 122, mode, "Q2MVXY")
++    call op2d(b%Q2MBXY, 123, mode, "Q2MBXY")
++    call op2d(b%TRADXY, 124, mode, "TRADXY")
++    call op2d(b%FVEGXY, 125, mode, "FVEGXY")
++    call op2d(b%TGVXY, 126, mode, "TGVXY")
++    call op2d(b%TGBXY, 127, mode, "TGBXY")
++    call op2d(b%SHGXY, 128, mode, "SHGXY")
++    call op2d(b%SHCXY, 129, mode, "SHCXY")
++    call op2d(b%EVGXY, 130, mode, "EVGXY")
++    call op2d(b%EVCXY, 131, mode, "EVCXY")
++    call op2d(b%TRXY, 132, mode, "TRXY")
++    call op2d(b%RUNSFXY, 133, mode, "RUNSFXY")
++    call op2d(b%RUNSBXY, 134, mode, "RUNSBXY")
++    call op2d(b%ECANXY, 135, mode, "ECANXY")
++    call op2d(b%EDIRXY, 136, mode, "EDIRXY")
++    call op2d(b%ETRANXY, 137, mode, "ETRANXY")
++    call op2d(b%FSAXY, 138, mode, "FSAXY")
++    call op2d(b%RS, 139, mode, "RS")
++    call op2d(b%Z0, 140, mode, "Z0")
++    call op2d(b%ZNT, 141, mode, "ZNT")
++  end subroutine visit_diagnostics
++
++  subroutine hide_diagnostics(d)
++    character(*), intent(in) :: d
++    integer :: ncid, outid, vid, i, j, nvars, ndims, natts, xtype, rank, n
++    integer :: dims(3), shape(3), newvid, status
++    integer, allocatable :: varmap(:)
++    character(len=NF90_MAX_NAME) :: name
++    real(kind=kind_noahmp), allocatable :: data(:,:,:)
++    character(len=16), parameter :: names(*) = [character(len=16) :: &
++      "TERRAIN", "SHBXY", "EVBXY", "VEGFRA", &
++      "GVFMIN", "GVFMAX", "ALBSFCDIRXY", "ALBSFCDIFXY", &
++      "SAVXY", "SAGXY", "PAHXY", "FIRAXY", &
++      "HFX", "LH", "GHBXY", "CANHSXY", &
++      "TAU_EW", "TAU_NS", "T2MVXY", "T2MBXY", &
++      "Q2MVXY", "Q2MBXY", "TRADXY", "FVEGXY", &
++      "TGVXY", "TGBXY", "SHGXY", "SHCXY", &
++      "EVGXY", "EVCXY", "TRXY", "RUNSFXY", &
++      "RUNSBXY", "ECANXY", "EDIRXY", "ETRANXY", &
++      "FSAXY", "RS", "Z0", "ZNT"]
++    ! Copy only legacy variables. Renaming NetCDF-4 variables can fail in
++    ! HDF5 dimension-scale handling, independently of restart compatibility.
++    call ncchk(nf90_open(trim(d)//"/Level_0.nc", NF90_NOWRITE, ncid), "open checkpoint")
++    call ncchk(nf90_create(trim(d)//"/legacy.nc", IOR(NF90_CLOBBER, NF90_NETCDF4), outid), "create legacy")
++    call ncchk(nf90_inquire(ncid, nDimensions=ndims, nVariables=nvars, nAttributes=natts), "inquire")
++    do i = 1, ndims
++       call ncchk(nf90_inquire_dimension(ncid, i, name, n), "dimension")
++       call ncchk(nf90_def_dim(outid, trim(name), n, j), "define legacy dimension")
++    end do
++    do i = 1, natts
++       call ncchk(nf90_inq_attname(ncid, NF90_GLOBAL, i, name), "attribute name")
++       call ncchk(nf90_copy_att(ncid, NF90_GLOBAL, trim(name), outid, NF90_GLOBAL), "copy attribute")
++    end do
++    allocate(varmap(nvars))
++    varmap = 0
++    do vid = 1, nvars
++       call ncchk(nf90_inquire_variable(ncid, vid, name, xtype, rank), "variable")
++       if (any(names == trim(name))) cycle
++       if (rank < 2 .or. rank > 3) error stop "unexpected restart variable rank"
++       call ncchk(nf90_inquire_variable(ncid, vid, dimids=dims(:rank)), "variable dimensions")
++       call ncchk(nf90_def_var(outid, trim(name), xtype, dims(:rank), varmap(vid)), "legacy variable")
++    end do
++    call ncchk(nf90_enddef(outid), "enddef legacy")
++    do vid = 1, nvars
++       if (varmap(vid) == 0) cycle
++       call ncchk(nf90_inquire_variable(ncid, vid, ndims=rank), "variable rank")
++       call ncchk(nf90_inquire_variable(ncid, vid, dimids=dims(:rank)), "variable dimensions")
++       shape = 1
++       do i = 1, rank
++          call ncchk(nf90_inquire_dimension(ncid, dims(i), len=shape(i)), "dimension length")
++       end do
++       allocate(data(shape(1),shape(2),shape(3)))
++       if (rank == 2) then
++          call ncchk(nf90_get_var(ncid, vid, data(:,:,1)), "read legacy data")
++          call ncchk(nf90_put_var(outid, varmap(vid), data(:,:,1)), "write legacy data")
++       else
++          call ncchk(nf90_get_var(ncid, vid, data), "read legacy data")
++          call ncchk(nf90_put_var(outid, varmap(vid), data), "write legacy data")
++       end if
++       deallocate(data)
++    end do
++    call ncchk(nf90_close(ncid), "close original checkpoint")
++    call ncchk(nf90_close(outid), "close legacy checkpoint")
++    call execute_command_line("mv "//trim(d)//"/legacy.nc "//trim(d)//"/Level_0.nc", exitstat=status)
++    if (status /= 0) error stop "install legacy fixture failed"
++  end subroutine hide_diagnostics
++
+   ! Assumed-shape dummies index 1..size, so negative snow lower bounds are handled
+   ! transparently and fill/check use the identical convention.
+   subroutine op3d(arr, tag, mode, name)
+@@ -235,6 +366,8 @@
+              select case (mode)
+              case (FILL);  arr(i,k,j) = expr_r(tag,i,k,j)
+              case (ZERO);  arr(i,k,j) = 0.0_kind_noahmp
++             case (CHECK_ZERO)
++                if (arr(i,k,j) /= 0.0_kind_noahmp) call fail3(name, i, k, j)
+              case (CHECK)
+                 want = expr_r(tag,i,k,j)
+                 if (arr(i,k,j) /= want) call fail3(name, i, k, j)
+@@ -255,6 +388,8 @@
+           select case (mode)
+           case (FILL);  arr(i,j) = expr_r(tag,i,0,j)
+           case (ZERO);  arr(i,j) = 0.0_kind_noahmp
++          case (CHECK_ZERO)
++             if (arr(i,j) /= 0.0_kind_noahmp) call fail3(name, i, 0, j)
+           case (CHECK)
+              want = expr_r(tag,i,0,j)
+              if (arr(i,j) /= want) call fail3(name, i, 0, j)
+--- a/drivers/erf/tests/CMakeLists.txt
++++ b/drivers/erf/tests/CMakeLists.txt
+@@ -177,6 +177,7 @@
+ # abort detected by output (see cpp-guard note); test_abort_handler.cpp linked.
+ noahmp_add_io_test(test_io_restart test_abort_handler.cpp)
+ add_test(NAME io_restart_roundtrip COMMAND test_io_restart roundtrip)
++add_test(NAME io_restart_legacy COMMAND test_io_restart legacy)
+ add_test(NAME io_restart_mismatch  COMMAND test_io_restart mismatch)
+ # The "layer mismatch" line is stdout; _Exit(7) skips libgfortran's flush, so
+ # GFORTRAN_UNBUFFERED_ALL keeps the PASS token from being dropped before CTest scans.

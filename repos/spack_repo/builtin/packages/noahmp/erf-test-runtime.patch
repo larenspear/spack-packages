@@ -1,0 +1,18 @@
+Carry the Fortran runtime search paths into C++ test links.
+
+--- a/drivers/erf/tests/CMakeLists.txt
++++ b/drivers/erf/tests/CMakeLists.txt
+@@ -18,7 +18,12 @@
+ 
+ # Fortran runtime + implicit libs needed when a C++-driven executable pulls in
+ # Fortran objects from libnoahmp (libgfortran, libquadmath, ...).
+-set(NOAHMP_FORTRAN_RT ${CMAKE_Fortran_IMPLICIT_LINK_LIBRARIES})
++add_library(noahmp_test_fortran_runtime INTERFACE)
++target_link_libraries(noahmp_test_fortran_runtime INTERFACE
++    ${CMAKE_Fortran_IMPLICIT_LINK_LIBRARIES})
++target_link_directories(noahmp_test_fortran_runtime INTERFACE
++    ${CMAKE_Fortran_IMPLICIT_LINK_DIRECTORIES})
++set(NOAHMP_FORTRAN_RT noahmp_test_fortran_runtime)
+ 
+ # GNU gfortran needs unlimited free-form line length for these long-lined sources.
+ function(noahmp_fortran_flags target)

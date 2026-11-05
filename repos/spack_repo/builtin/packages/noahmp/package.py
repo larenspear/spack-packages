@@ -27,7 +27,18 @@ class Noahmp(CMakePackage):
     # Noah-MP ships under a custom UCAR license (see LICENSE.txt); there is no
     # matching SPDX identifier, so no license() directive is set.
 
-    version("5.2.1", sha256="4c9d4c6ebb2ccf707317933d704fe6f6d764f56a72aff1a7b35164e4ec80b4ed")
+    # Release-matched ERF fork: its generated coupling API differs from NCAR tags.
+    version(
+        "erf-26.11",
+        git="https://github.com/erf-model/noahmp.git",
+        commit="fbaa38f0753a0f199dcebd508e2ef64a5dc74bfd",
+    )
+
+    version(
+        "5.2.1",
+        preferred=True,
+        sha256="4c9d4c6ebb2ccf707317933d704fe6f6d764f56a72aff1a7b35164e4ec80b4ed",
+    )
     version("5.2.0", sha256="3930250a4459859fbeb5583939fa680d84567764b4272fdb65dcb2f8836439fb")
     version("5.1.1", sha256="d3a2a2429b3edb32366e2810e7bc401cc925e6112708407023eef970deaa6bd6")
     version("5.1.0", sha256="45e1dd87eeffb56125a397fe82106185d989104ea9c1172d907b318c4aca7493")
@@ -46,9 +57,14 @@ class Noahmp(CMakePackage):
     variant("shared", default=True, description="Build a shared library")
 
     patch("v5.1.0-mpi.patch", when="@5.1.0")
-    patch("library-install.patch")
-    patch("land-input-precision.patch")
-    patch("v5.1-double-precision.patch", when="@:5.1.1")
+    patch("library-install.patch", when="@5.1.0:5.2.1")
+    patch("land-input-precision.patch", when="@5.1.0:5.2.1")
+    patch("v5.1-double-precision.patch", when="@5.1.0:5.1.1")
+
+    patch("erf-26.11-install.patch", when="@erf-26.11")
+    patch("erf-restart-diagnostics.patch", when="@erf-26.11")
+    patch("erf-test-runtime.patch", when="@erf-26.11")
+    depends_on("python@3:", type="build", when="@erf-26.11")
 
     test_requires_compiler = True
 
@@ -66,12 +82,23 @@ class Noahmp(CMakePackage):
         depends_on("netcdf-c+mpi")
         depends_on("netcdf-fortran")
 
+    @property
+    def _library_version(self):
+        # CMake package versions are numeric; the Spack snapshot name records
+        # its ERF provenance, and the config also exports the exact fork commit.
+        return "26.11" if self.spec.satisfies("@erf-26.11") else str(self.version)
+
     def cmake_args(self):
         netcdf_c = self.spec["netcdf-c"]
         netcdf_fortran = self.spec["netcdf-fortran"]
         return [
-            self.define("NOAHMP_VERSION", self.version),
+            self.define("NOAHMP_VERSION", self._library_version),
             self.define_from_variant("BUILD_SHARED_LIBS", "shared"),
+            *(
+                [self.define("NOAHMP_ENABLE_TESTS", self.run_tests)]
+                if self.spec.satisfies("@erf-26.11")
+                else []
+            ),
             # Upstream FindNetCDF assumes a common C/Fortran prefix. Supply
             # both interfaces explicitly, including lib64/external installs.
             self.define("NETCDF_INCLUDES", netcdf_c.prefix.include),
@@ -106,7 +133,7 @@ class Noahmp(CMakePackage):
                 "Unix Makefiles",
                 self.define("CMAKE_MAKE_PROGRAM", self.spec["gmake"].prefix.bin.make),
                 self.define("CMAKE_PREFIX_PATH", [self.prefix, self.spec["mpi"].prefix]),
-                self.define("NOAHMP_VERSION", self.version),
+                self.define("NOAHMP_VERSION", self._library_version),
                 self.define(
                     "NETCDF_FORTRAN_INCLUDE_DIR", self.spec["netcdf-fortran"].prefix.include
                 ),
