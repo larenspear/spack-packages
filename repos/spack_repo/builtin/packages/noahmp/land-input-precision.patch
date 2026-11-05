@@ -1,0 +1,15 @@
+Match the soil interpolation dummy arguments to the Noah-MP field precision.
+
+--- a/drivers/erf/NoahmpReadLandMod.F90
++++ b/drivers/erf/NoahmpReadLandMod.F90
+@@ -512,8 +512,8 @@
+ subroutine init_interp(xstart, xend, ystart, yend, nsoil, sldpth, var, nvar, src, layer_bottom, layer_top, rank)
+     implicit none
+     integer, intent(in)    :: xstart, xend, ystart, yend, nsoil, nvar
+-    real, dimension(nsoil) :: sldpth ! the thickness of each layer
+-    real, dimension(xstart:xend, nsoil, ystart:yend), intent(out) :: var
++    real(kind=kind_noahmp), dimension(nsoil) :: sldpth ! the thickness of each layer
++    real(kind=kind_noahmp), dimension(xstart:xend, nsoil, ystart:yend), intent(out) :: var
+     real, dimension(xstart:xend, nvar, ystart:yend ), intent(in)  :: src
+     real, dimension(nvar),                            intent(in)  :: layer_bottom ! The depth from the surface of each layer bottom.
+     real, dimension(nvar),                            intent(in)  :: layer_top    ! The depth from the surface of each layer top.

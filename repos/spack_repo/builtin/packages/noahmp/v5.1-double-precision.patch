@@ -1,0 +1,13 @@
+Backport the double-precision fix from NCAR/noahmp#227 (included in v5.2.0).
+
+--- a/src/CanopyRadiationTwoStreamMod.F90
++++ b/src/CanopyRadiationTwoStreamMod.F90
+@@ -174,7 +174,7 @@
+     Tmp1  = B * B - C * C
+     H     = sqrt(Tmp1) / OpticDepthDif
+     Sigma = Tmp0 * Tmp0 - Tmp1
+-    if ( abs(Sigma) < 1.0e-6 ) Sigma = sign(1.0e-6, Sigma)
++    if ( abs(Sigma) < real(1.0e-6,kind=kind_noahmp) ) Sigma = sign(real(1.0e-6,kind=kind_noahmp), Sigma)
+     P1    = B + OpticDepthDif * H
+     P2    = B - OpticDepthDif * H
+     P3    = B + Tmp0

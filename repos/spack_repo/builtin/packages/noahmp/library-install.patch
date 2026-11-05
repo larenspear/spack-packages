@@ -1,0 +1,75 @@
+Fix the ERF library precision, dependency interfaces, and installed development files.
+
+--- a/drivers/erf/CMakeLists.txt
++++ b/drivers/erf/CMakeLists.txt
+@@ -24,12 +24,12 @@
+ add_library(NoahMP::noahmp ALIAS noahmp)
+ 
+ if("${CMAKE_Fortran_COMPILER_ID}" MATCHES "GNU")
+-    target_compile_options(noahmp PRIVATE "-ffree-line-length-none")
++    target_compile_options(noahmp PRIVATE $<$<COMPILE_LANGUAGE:Fortran>:-ffree-line-length-none>)
+ endif()
+ 
+ target_include_directories(noahmp PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>)
+-target_include_directories(noahmp PRIVATE $<BUILD_INTERFACE:${NETCDF_INCLUDES}>)
+-target_link_libraries(noahmp PRIVATE ${NETCDF_LIBRARIES_F90})
++target_include_directories(noahmp PRIVATE ${NETCDF_INCLUDES} ${NETCDF_INCLUDES_F90})
++target_link_libraries(noahmp PRIVATE ${NETCDF_LIBRARIES_F90} ${NETCDF_LIBRARIES_C})
+ target_link_libraries(noahmp PUBLIC MPI::MPI_Fortran)
+ target_include_directories(noahmp INTERFACE $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>)
+ 
+@@ -46,3 +46,43 @@
+     NAMESPACE NoahMP::
+     DESTINATION lib/cmake/noahmp
+ )
++
++# The ERF C++ interface uses double pointers, so the Fortran storage must match.
++target_compile_definitions(noahmp PRIVATE DOUBLE_PREC)
++target_compile_features(noahmp PUBLIC cxx_std_14)
++set_target_properties(noahmp PROPERTIES
++    POSITION_INDEPENDENT_CODE ON
++    Fortran_MODULE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/modules"
++)
++target_include_directories(noahmp PUBLIC
++    $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/modules>
++)
++
++install(DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/modules/" DESTINATION include
++    FILES_MATCHING PATTERN "*.mod" PATTERN "*.MOD" PATTERN "*.smod" PATTERN "*.SMOD"
++)
++install(FILES NoahArray.H NoahmpIO.H DESTINATION include)
++# Copy the real data files, independently of the driver's relative symlinks.
++install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/../../parameters/"
++    DESTINATION share/noahmp FILES_MATCHING PATTERN "*.TBL" PATTERN "*.nc"
++)
++install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/../../LICENSE.txt"
++    DESTINATION share/licenses/noahmp
++)
++
++include(CMakePackageConfigHelpers)
++configure_package_config_file(
++    "${CMAKE_CURRENT_SOURCE_DIR}/NoahMPConfig.cmake.in"
++    "${CMAKE_CURRENT_BINARY_DIR}/NoahMPConfig.cmake"
++    INSTALL_DESTINATION lib/cmake/noahmp
++)
++# The coupling interface changes between releases; do not promise ABI compatibility.
++write_basic_package_version_file(
++    "${CMAKE_CURRENT_BINARY_DIR}/NoahMPConfigVersion.cmake"
++    VERSION "${NOAHMP_VERSION}" COMPATIBILITY ExactVersion
++)
++install(FILES
++    "${CMAKE_CURRENT_BINARY_DIR}/NoahMPConfig.cmake"
++    "${CMAKE_CURRENT_BINARY_DIR}/NoahMPConfigVersion.cmake"
++    DESTINATION lib/cmake/noahmp
++)
+--- /dev/null
++++ b/drivers/erf/NoahMPConfig.cmake.in
+@@ -0,0 +1,8 @@
++@PACKAGE_INIT@
++
++include(CMakeFindDependencyMacro)
++find_dependency(MPI COMPONENTS Fortran)
++include("${CMAKE_CURRENT_LIST_DIR}/NoahMPTargets.cmake")
++# Hosts must stage these files in their simulation's working directory.
++set_and_check(NoahMP_DATA_DIR "${CMAKE_CURRENT_LIST_DIR}/../../../share/noahmp")
++check_required_components(NoahMP)

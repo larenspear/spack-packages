@@ -1,3 +1,7 @@
+# Copyright Spack Project Developers. See COPYRIGHT file for details.
+#
+# SPDX-License-Identifier: (Apache-2.0 OR MIT)
+
 from spack_repo.builtin.build_systems.cmake import CMakePackage
 
 from spack.package import *
@@ -37,72 +41,77 @@ class Noahmp(CMakePackage):
     # cannot be built this way.
     root_cmakelists_dir = "drivers/erf"
 
+    # The C++ coupling headers hard-code double*. A single-precision build of
+    # the Fortran modules is ABI-incompatible even though it compiles.
     variant("shared", default=True, description="Build a shared library")
 
+    patch("v5.1.0-mpi.patch", when="@5.1.0")
+    patch("library-install.patch")
+    patch("land-input-precision.patch")
+    patch("v5.1-double-precision.patch", when="@:5.1.1")
+
+    test_requires_compiler = True
+
+    depends_on("cmake@3.17:", type=("build", "test"))
+    depends_on("gmake", type=("build", "test"))
+
     with default_args(type="build"):
-        depends_on("cmake@3.17:")
         depends_on("c")
         depends_on("cxx")
         depends_on("fortran")
 
     with default_args(type=("build", "link")):
         depends_on("mpi")
-        depends_on("netcdf-c")
+        # The ERF driver writes NetCDF-4 files collectively with MPI-IO.
+        depends_on("netcdf-c+mpi")
         depends_on("netcdf-fortran")
 
     def cmake_args(self):
+        netcdf_c = self.spec["netcdf-c"]
         netcdf_fortran = self.spec["netcdf-fortran"]
         return [
-            # The project's CMakeLists prepends NETCDF_DIR to CMAKE_PREFIX_PATH;
-            # point it at netcdf-c so the base C interface (netcdf.h / libnetcdf)
-            # is found.
-            self.define("NETCDF_DIR", self.spec["netcdf-c"].prefix),
-            # The bundled cmake-modules/FindNetCDF.cmake assumes the C and
-            # Fortran NetCDF libraries share one prefix: it searches for the F90
-            # interface (netcdf.mod / libnetcdff) only under the C library's
-            # directory with NO_DEFAULT_PATH. Spack keeps netcdf-c and
-            # netcdf-fortran in separate prefixes, so pre-seed the F90 result
-            # variables to bypass that search. The compiler still gets the right
-            # -I/-l flags from Spack's compiler wrapper.
-            self.define("NETCDF_INCLUDES_F90", netcdf_fortran.prefix.include),
-            self.define("NETCDF_LIBRARIES_F90", netcdf_fortran.libs[0]),
+            self.define("NOAHMP_VERSION", self.version),
             self.define_from_variant("BUILD_SHARED_LIBS", "shared"),
+            # Upstream FindNetCDF assumes a common C/Fortran prefix. Supply
+            # both interfaces explicitly, including lib64/external installs.
+            self.define("NETCDF_INCLUDES", netcdf_c.prefix.include),
+            self.define("NETCDF_LIBRARIES_C", netcdf_c.libs),
+            self.define("NETCDF_INCLUDES_F90", netcdf_fortran.prefix.include),
+            self.define("NETCDF_LIBRARIES_F90", netcdf_fortran.libs),
+            self.define("MPI_Fortran_COMPILER", self.spec["mpi"].mpifc),
         ]
 
+    @property
+    def libs(self):
+        return find_libraries("libnoahmp", root=self.prefix.lib, shared="+shared" in self.spec)
+
     @run_after("install")
-    def make_consumable(self):
-        """Make the install usable by downstream packages.
+    @on_package_attributes(run_tests=True)
+    def check_install(self):
+        self._check_library(join_path(self.package_dir, "test"))
 
-        Upstream CMake installs only the library and the exported targets file;
-        ``INCLUDES DESTINATION include`` copies nothing, leaving ``include``
-        empty. Downstream consumers need the compiler-generated Fortran ``.mod``
-        files (to ``use`` Noah-MP modules) and the C/C++ I/O headers (used by
-        C++ hosts such as ERF), and a CMake config file so ``find_package`` can
-        resolve the ``NoahMP::noahmp`` target.
-        """
-        mkdirp(self.prefix.include)
+    def test_library(self):
+        """Build and run installed C++/Fortran consumers, including runtime data I/O."""
+        self._check_library(self.test_suite.current_test_data_dir)
 
-        # Fortran module interfaces, emitted into the build tree by the compiler.
-        for mod in find(self.build_directory, "*.mod", recursive=True):
-            install(mod, self.prefix.include)
-
-        # C/C++ headers for the Noah-MP I/O layer.
-        driver = join_path(self.stage.source_path, self.root_cmakelists_dir)
-        for hdr in find(driver, ["*.H", "*.h", "*.hpp"], recursive=False):
-            install(hdr, self.prefix.include)
-
-        # Runtime parameter table and SNICAR optics data tables.
-        mkdirp(self.prefix.share.noahmp)
-        for data in find(driver, ["*.TBL", "*.nc"], recursive=False):
-            install(data, self.prefix.share.noahmp)
-
-        # Upstream installs NoahMPTargets.cmake but no package config file, so
-        # find_package(NoahMP) in CONFIG mode would fail. Provide a minimal one.
-        cmake_dir = join_path(self.prefix.lib, "cmake", "noahmp")
-        mkdirp(cmake_dir)
-        with open(join_path(cmake_dir, "NoahMPConfig.cmake"), "w") as f:
-            f.write(
-                "include(CMakeFindDependencyMacro)\n"
-                "find_dependency(MPI COMPONENTS Fortran)\n"
-                'include("${CMAKE_CURRENT_LIST_DIR}/NoahMPTargets.cmake")\n'
+    def _check_library(self, source):
+        cmake = Executable(self.spec["cmake"].prefix.bin.cmake)
+        with working_dir("consumer", create=True):
+            cmake(
+                "-S",
+                source,
+                "-B",
+                ".",
+                "-G",
+                "Unix Makefiles",
+                self.define("CMAKE_MAKE_PROGRAM", self.spec["gmake"].prefix.bin.make),
+                self.define("CMAKE_PREFIX_PATH", [self.prefix, self.spec["mpi"].prefix]),
+                self.define("NOAHMP_VERSION", self.version),
+                self.define(
+                    "NETCDF_FORTRAN_INCLUDE_DIR", self.spec["netcdf-fortran"].prefix.include
+                ),
+                self.define("NETCDF_FORTRAN_LIBRARY", self.spec["netcdf-fortran"].libs),
             )
+            cmake("--build", ".")
+            ctest = Executable(self.spec["cmake"].prefix.bin.ctest)
+            ctest("--output-on-failure")
