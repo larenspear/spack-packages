@@ -1,0 +1,219 @@
+From: Laren Spear
+Subject: [PATCH] Add a standalone install interface for the ERF source snapshot
+
+Keep the build interface in a Spack patch so it participates in the package
+content hash and is preserved in installed recipe provenance.
+
+diff --git a/spack-build-interface/CMakeLists.txt b/spack-build-interface/CMakeLists.txt
+new file mode 100644
+--- /dev/null
++++ b/spack-build-interface/CMakeLists.txt
+@@ -0,0 +1,40 @@
++cmake_minimum_required(VERSION 3.24)
++project(EamxxShoc VERSION 26.11 LANGUAGES C CXX)
++include(GNUInstallDirs)
++include(CMakePackageConfigHelpers)
++find_package(Ekat 2.1 CONFIG REQUIRED COMPONENTS Core KokkosUtils Pack Algorithm)
++get_filename_component(source "${CMAKE_CURRENT_SOURCE_DIR}/../components/eamxx/src" ABSOLUTE)
++include(sources.cmake)
++list(TRANSFORM shoc_sources PREPEND "${source}/")
++add_library(eamxx_shoc ${shoc_sources})
++add_library(EamxxShoc::shoc ALIAS eamxx_shoc)
++set_target_properties(eamxx_shoc PROPERTIES EXPORT_NAME shoc POSITION_INDEPENDENT_CODE ON)
++target_compile_features(eamxx_shoc PUBLIC cxx_std_20)
++target_compile_definitions(eamxx_shoc PUBLIC SCREAM_SHOC_SMALL_KERNELS)
++target_link_libraries(eamxx_shoc PUBLIC ekat::AllLibs)
++target_include_directories(eamxx_shoc PUBLIC
++  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
++  $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/eamxx-shoc>)
++foreach(dir IN ITEMS . physics/share physics/shoc physics/shoc/impl)
++  target_include_directories(eamxx_shoc PUBLIC
++    $<BUILD_INTERFACE:${source}/${dir}>
++    $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/eamxx-shoc/${dir}>)
++endforeach()
++install(FILES eamxx_config.h DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/eamxx-shoc)
++# Install the complete kernel header closure, excluding EAMxx's process driver.
++include(headers.cmake)
++foreach(header IN LISTS shoc_headers)
++  get_filename_component(dir "${header}" DIRECTORY)
++  install(FILES "${source}/${header}" DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/eamxx-shoc/${dir}")
++endforeach()
++install(TARGETS eamxx_shoc EXPORT EamxxShocTargets
++  ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR} LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
++  RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
++install(EXPORT EamxxShocTargets NAMESPACE EamxxShoc:: DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/EamxxShoc)
++configure_package_config_file(EamxxShocConfig.cmake.in EamxxShocConfig.cmake
++  INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/EamxxShoc)
++write_basic_package_version_file(EamxxShocConfigVersion.cmake VERSION 26.11 COMPATIBILITY ExactVersion)
++install(FILES ${CMAKE_CURRENT_BINARY_DIR}/EamxxShocConfig.cmake
++              ${CMAKE_CURRENT_BINARY_DIR}/EamxxShocConfigVersion.cmake
++  DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/EamxxShoc)
++install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/../LICENSE DESTINATION ${CMAKE_INSTALL_DATADIR}/eamxx-shoc)
+diff --git a/spack-build-interface/EamxxShocConfig.cmake.in b/spack-build-interface/EamxxShocConfig.cmake.in
+new file mode 100644
+--- /dev/null
++++ b/spack-build-interface/EamxxShocConfig.cmake.in
+@@ -0,0 +1,8 @@
++@PACKAGE_INIT@
++include(CMakeFindDependencyMacro)
++find_dependency(Ekat 2.1 CONFIG HINTS "@Ekat_DIR@")
++set(EAMXX_SHOC_SOURCE_COMMIT "2eb52d9b3d452e593f3825f9408507cae3519bf6")
++set(EAMXX_SHOC_PRECISION "double")
++set(EAMXX_SHOC_PACK_SIZE 1)
++include("${CMAKE_CURRENT_LIST_DIR}/EamxxShocTargets.cmake")
++check_required_components(EamxxShoc)
+diff --git a/spack-build-interface/eamxx_config.h b/spack-build-interface/eamxx_config.h
+new file mode 100644
+--- /dev/null
++++ b/spack-build-interface/eamxx_config.h
+@@ -0,0 +1,11 @@
++#ifndef SCREAM_CONFIG_H
++#define SCREAM_CONFIG_H
++// ERF 26.11's EAMxx kernel ABI: double precision and scalar packs.
++#define SCREAM_DOUBLE_PRECISION
++#define SCREAM_PACK_SIZE 1
++#define SCREAM_SMALL_PACK_SIZE 1
++#define SCREAM_POSSIBLY_NO_PACK_SIZE 1
++#define SCREAM_HAS_LEAP_YEAR
++#define SCREAM_TEST_LEVEL 0
++#define SCREAM_MPI_ON_DEVICE 1
++#endif
+diff --git a/spack-build-interface/headers.cmake b/spack-build-interface/headers.cmake
+new file mode 100644
+--- /dev/null
++++ b/spack-build-interface/headers.cmake
+@@ -0,0 +1,68 @@
++# Transitive local headers of the pinned SHOC/shared-physics translation units.
++set(shoc_headers
++  physics/share/physics_constants.hpp
++  physics/share/physics_functions.hpp
++  physics/share/physics_saturation_impl.hpp
++  physics/shoc/impl/shoc_adv_sgs_tke_impl.hpp
++  physics/shoc/impl/shoc_assumed_pdf_compute_buoyancy_flux_impl.hpp
++  physics/shoc/impl/shoc_assumed_pdf_compute_cloud_liquid_variance_impl.hpp
++  physics/shoc/impl/shoc_assumed_pdf_compute_liquid_water_flux_impl.hpp
++  physics/shoc/impl/shoc_assumed_pdf_compute_qs_impl.hpp
++  physics/shoc/impl/shoc_assumed_pdf_compute_s_impl.hpp
++  physics/shoc/impl/shoc_assumed_pdf_compute_sgs_liquid_impl.hpp
++  physics/shoc/impl/shoc_assumed_pdf_compute_temperature_impl.hpp
++  physics/shoc/impl/shoc_assumed_pdf_impl.hpp
++  physics/shoc/impl/shoc_assumed_pdf_inplume_correlations_impl.hpp
++  physics/shoc/impl/shoc_assumed_pdf_qw_parameters_impl.hpp
++  physics/shoc/impl/shoc_assumed_pdf_thl_parameters_impl.hpp
++  physics/shoc/impl/shoc_assumed_pdf_tilde_to_real_impl.hpp
++  physics/shoc/impl/shoc_assumed_pdf_vv_parameters_impl.hpp
++  physics/shoc/impl/shoc_calc_shoc_varorcovar_impl.hpp
++  physics/shoc/impl/shoc_calc_shoc_vertflux_impl.hpp
++  physics/shoc/impl/shoc_check_length_scale_shoc_length_impl.hpp
++  physics/shoc/impl/shoc_check_tke_impl.hpp
++  physics/shoc/impl/shoc_clipping_diag_third_shoc_moments_impl.hpp
++  physics/shoc/impl/shoc_compute_brunt_shoc_length_impl.hpp
++  physics/shoc/impl/shoc_compute_diag_third_shoc_moment_impl.hpp
++  physics/shoc/impl/shoc_compute_l_inf_shoc_length_impl.hpp
++  physics/shoc/impl/shoc_compute_shoc_mix_shoc_length_impl.hpp
++  physics/shoc/impl/shoc_compute_shoc_temperature_impl.hpp
++  physics/shoc/impl/shoc_compute_shoc_vapor_impl.hpp
++  physics/shoc/impl/shoc_compute_shr_prod_impl.hpp
++  physics/shoc/impl/shoc_compute_tmpi_impl.hpp
++  physics/shoc/impl/shoc_diag_obklen_impl.hpp
++  physics/shoc/impl/shoc_diag_second_moments_impl.hpp
++  physics/shoc/impl/shoc_diag_second_moments_lbycond_impl.hpp
++  physics/shoc/impl/shoc_diag_second_moments_srf_impl.hpp
++  physics/shoc/impl/shoc_diag_second_moments_ubycond_impl.hpp
++  physics/shoc/impl/shoc_diag_second_shoc_moments_impl.hpp
++  physics/shoc/impl/shoc_diag_third_shoc_moments_impl.hpp
++  physics/shoc/impl/shoc_dp_inverse_impl.hpp
++  physics/shoc/impl/shoc_eddy_diffusivities_impl.hpp
++  physics/shoc/impl/shoc_energy_fixer_impl.hpp
++  physics/shoc/impl/shoc_energy_integrals_impl.hpp
++  physics/shoc/impl/shoc_grid_impl.hpp
++  physics/shoc/impl/shoc_integ_column_stability_impl.hpp
++  physics/shoc/impl/shoc_isotropic_ts_impl.hpp
++  physics/shoc/impl/shoc_length_impl.hpp
++  physics/shoc/impl/shoc_linear_interp_impl.hpp
++  physics/shoc/impl/shoc_main_impl.hpp
++  physics/shoc/impl/shoc_pblintd_check_pblh_impl.hpp
++  physics/shoc/impl/shoc_pblintd_cldcheck_impl.hpp
++  physics/shoc/impl/shoc_pblintd_height_impl.hpp
++  physics/shoc/impl/shoc_pblintd_impl.hpp
++  physics/shoc/impl/shoc_pblintd_init_pot_impl.hpp
++  physics/shoc/impl/shoc_pblintd_surf_temp_impl.hpp
++  physics/shoc/impl/shoc_tke_impl.hpp
++  physics/shoc/impl/shoc_tridiag_solver_impl.hpp
++  physics/shoc/impl/shoc_update_host_dse_impl.hpp
++  physics/shoc/impl/shoc_update_prognostics_implicit_impl.hpp
++  physics/shoc/shoc_constants.hpp
++  physics/shoc/shoc_functions.hpp
++  share/eamxx_types.hpp
++  share/util/eamxx_column_ops.hpp
++  share/util/eamxx_combine_ops.hpp
++  share/util/eamxx_common_physics_functions.hpp
++  share/util/eamxx_common_physics_functions_impl.hpp
++  share/util/eamxx_universal_constants.hpp
++)
+diff --git a/spack-build-interface/sources.cmake b/spack-build-interface/sources.cmake
+new file mode 100644
+--- /dev/null
++++ b/spack-build-interface/sources.cmake
+@@ -0,0 +1,61 @@
++# Exact kernel source set from ERF 26.11 CMake/BuildERFExe.cmake.
++set(shoc_sources
++  physics/share/physics_saturation.cpp
++  physics/shoc/disp/shoc_assumed_pdf_disp.cpp
++  physics/shoc/disp/shoc_check_tke_disp.cpp
++  physics/shoc/disp/shoc_compute_shoc_temperature_disp.cpp
++  physics/shoc/disp/shoc_compute_shoc_vapor_disp.cpp
++  physics/shoc/disp/shoc_diag_obklen_disp.cpp
++  physics/shoc/disp/shoc_diag_second_shoc_moments_disp.cpp
++  physics/shoc/disp/shoc_diag_third_shoc_moments_disp.cpp
++  physics/shoc/disp/shoc_energy_fixer_disp.cpp
++  physics/shoc/disp/shoc_energy_integrals_disp.cpp
++  physics/shoc/disp/shoc_grid_disp.cpp
++  physics/shoc/disp/shoc_length_disp.cpp
++  physics/shoc/disp/shoc_pblintd_disp.cpp
++  physics/shoc/disp/shoc_tke_disp.cpp
++  physics/shoc/disp/shoc_update_host_dse_disp.cpp
++  physics/shoc/disp/shoc_update_prognostics_implicit_disp.cpp
++  physics/shoc/eti/shoc_adv_sgs_tke.cpp
++  physics/shoc/eti/shoc_assumed_pdf.cpp
++  physics/shoc/eti/shoc_calc_shoc_varorcovar.cpp
++  physics/shoc/eti/shoc_calc_shoc_vertflux.cpp
++  physics/shoc/eti/shoc_check_length_scale_shoc_length.cpp
++  physics/shoc/eti/shoc_check_tke.cpp
++  physics/shoc/eti/shoc_clipping_diag_third_shoc_moments.cpp
++  physics/shoc/eti/shoc_compute_brunt_shoc_length.cpp
++  physics/shoc/eti/shoc_compute_diag_third_shoc_moment.cpp
++  physics/shoc/eti/shoc_compute_l_inf_shoc_length.cpp
++  physics/shoc/eti/shoc_compute_shoc_mix_shoc_length.cpp
++  physics/shoc/eti/shoc_compute_shoc_temperature.cpp
++  physics/shoc/eti/shoc_compute_shoc_vapor.cpp
++  physics/shoc/eti/shoc_compute_shr_prod.cpp
++  physics/shoc/eti/shoc_compute_tmpi.cpp
++  physics/shoc/eti/shoc_diag_obklen.cpp
++  physics/shoc/eti/shoc_diag_second_moments.cpp
++  physics/shoc/eti/shoc_diag_second_moments_lbycond.cpp
++  physics/shoc/eti/shoc_diag_second_moments_srf.cpp
++  physics/shoc/eti/shoc_diag_second_moments_ubycond.cpp
++  physics/shoc/eti/shoc_diag_second_shoc_moments.cpp
++  physics/shoc/eti/shoc_diag_third_shoc_moments.cpp
++  physics/shoc/eti/shoc_dp_inverse.cpp
++  physics/shoc/eti/shoc_eddy_diffusivities.cpp
++  physics/shoc/eti/shoc_energy_fixer.cpp
++  physics/shoc/eti/shoc_energy_integrals.cpp
++  physics/shoc/eti/shoc_grid.cpp
++  physics/shoc/eti/shoc_integ_column_stability.cpp
++  physics/shoc/eti/shoc_isotropic_ts.cpp
++  physics/shoc/eti/shoc_linear_interp.cpp
++  physics/shoc/eti/shoc_length.cpp
++  physics/shoc/eti/shoc_main.cpp
++  physics/shoc/eti/shoc_pblintd.cpp
++  physics/shoc/eti/shoc_pblintd_check_pblh.cpp
++  physics/shoc/eti/shoc_pblintd_cldcheck.cpp
++  physics/shoc/eti/shoc_pblintd_height.cpp
++  physics/shoc/eti/shoc_pblintd_init_pot.cpp
++  physics/shoc/eti/shoc_pblintd_surf_temp.cpp
++  physics/shoc/eti/shoc_tridiag_solver.cpp
++  physics/shoc/eti/shoc_tke.cpp
++  physics/shoc/eti/shoc_update_host_dse.cpp
++  physics/shoc/eti/shoc_update_prognostics_implicit.cpp
++)

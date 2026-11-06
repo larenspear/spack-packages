@@ -32,12 +32,11 @@ class RrtmgpCpp(CMakePackage):
     depends_on("netcdf-c+shared")
     depends_on("rrtmgp-data@erf-26.11", type=("build", "run"))
 
+    # Preserve all build inputs in Spack hashes and installed provenance.
+    patch("standalone-install.patch")
+
     root_cmakelists_dir = "spack-build-interface"
     test_requires_compiler = True
-
-    @run_before("cmake")
-    def prepare_build_interface(self):
-        install_tree(join_path(self.package_dir, "cmake"), self.root_cmakelists_dir)
 
     def cmake_args(self):
         return [

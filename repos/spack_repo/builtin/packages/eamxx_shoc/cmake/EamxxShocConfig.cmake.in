@@ -1,8 +1,0 @@
-@PACKAGE_INIT@
-include(CMakeFindDependencyMacro)
-find_dependency(Ekat 2.1 CONFIG HINTS "@Ekat_DIR@")
-set(EAMXX_SHOC_SOURCE_COMMIT "2eb52d9b3d452e593f3825f9408507cae3519bf6")
-set(EAMXX_SHOC_PRECISION "double")
-set(EAMXX_SHOC_PACK_SIZE 1)
-include("${CMAKE_CURRENT_LIST_DIR}/EamxxShocTargets.cmake")
-check_required_components(EamxxShoc)
