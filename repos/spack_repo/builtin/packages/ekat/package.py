@@ -109,6 +109,12 @@ class Ekat(CMakePackage):
 
     def _check_consumer(self, source):
         cmake = Executable(self.spec["cmake"].prefix.bin.cmake)
+        mpi_args = []
+        if "+mpi" in self.spec:
+            mpi_args = [
+                self.define("MPI_C_COMPILER", self.spec["mpi"].mpicc),
+                self.define("MPI_CXX_COMPILER", self.spec["mpi"].mpicxx),
+            ]
         with working_dir("installed-consumer", create=True):
             cmake(
                 "-S",
@@ -118,7 +124,13 @@ class Ekat(CMakePackage):
                 "-G",
                 "Unix Makefiles",
                 self.define("CMAKE_MAKE_PROGRAM", self.spec["gmake"].prefix.bin.make),
-                self.define("CMAKE_PREFIX_PATH", self.prefix),
+                self.define(
+                    "CMAKE_PREFIX_PATH",
+                    [str(s.prefix) for s in self.spec.traverse(deptype="link")],
+                ),
+                *mpi_args,
             )
             cmake("--build", ".", "--parallel", "2")
             Executable(self.spec["cmake"].prefix.bin.ctest)("--output-on-failure")
+            if "+mpi" in self.spec:
+                Executable(self.spec["mpi"].prefix.bin.mpiexec)("-n", "2", "./consumer")
