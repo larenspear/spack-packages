@@ -1,0 +1,372 @@
+ERF 26.11: consume installed CPU physics libraries and coefficient data.
+
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -404,95 +404,12 @@
+ 
+ if(ERF_ENABLE_EKAT)
+-  list(APPEND CMAKE_MESSAGE_CONTEXT "EKAT")
+-
+-  message(STATUS "Configuring EKAT")
+-
+   if(NOT ERF_ENABLE_MPI)
+-    message(FATAL_ERROR "CMake Error: MPI must be enabled if EKAT is enabled.")
+-  endif()
+-
+-  # NOTE: EKAT provides KOKKOS, so set relevant flags for KOKKOS
+-  if(ERF_ENABLE_CUDA)
+-    message(VERBOSE "Enabling Kokkos CUDA support")
+-    set(Kokkos_ENABLE_CUDA ON CACHE BOOL "kokkos enable cuda")
+-    set(Kokkos_ENABLE_CUDA_LAMBDA ON CACHE BOOL "kokkos enable cuda lambda")
+-    set(Kokkos_ENABLE_CUDA_RELOCATABLE_DEVICE_CODE ON CACHE BOOL "kokkos enable cuda RDC")
+-  endif()
+-
+-  if(ERF_ENABLE_HIP)
+-    message(VERBOSE "Enabling Kokkos HIP support")
+-    set(Kokkos_ENABLE_HIP ON CACHE BOOL "kokkos enable hip")
+-    set(Kokkos_ENABLE_HIP_LAMBDA ON CACHE BOOL "kokkos enable hip lambda")
+-    set(Kokkos_ENABLE_HIP_RELOCATABLE_DEVICE_CODE ON CACHE BOOL "kokkos enable hip RDC")
+-  endif()
+-
+-  if(ERF_ENABLE_SYCL)
+-    message(VERBOSE "Enabling Kokkos SYCL support")
+-    set(Kokkos_ENABLE_SYCL ON CACHE BOOL "kokkos enable sycl")
+-    set(Kokkos_ENABLE_SYCL_LAMBDA ON CACHE BOOL "kokkos enable sycl lambda")
+-  endif()
+-
++    message(FATAL_ERROR "ERF's EKAT interface requires MPI")
++  endif()
++  if(ERF_ENABLE_CUDA OR ERF_ENABLE_HIP OR ERF_ENABLE_SYCL)
++    message(FATAL_ERROR "The installed physics interface currently supports CPU builds only")
++  endif()
+   set(CMAKE_CXX_STANDARD 20)
+-  set(EKAT_ENABLE_MPI ON CACHE BOOL "ekat enable mpi")
+-  set(EKAT_ENABLE_TESTS OFF CACHE BOOL "ekat enable tests")
+-  set(EKAT_ENABLE_KOKKOS ON CACHE BOOL "ekat enable kokkos")
+-  set(EKAT_ENABLE_LOGGING ON CACHE BOOL "ekat enable spdlog")
+-  # Kokkos deprecation used inside EKAT or RRTMGP is theirs to fix
+-  set(Kokkos_ENABLE_DEPRECATION_WARNINGS OFF CACHE BOOL "kokkos deprecation warnings")
+-  set(EKAT_BIN ${PROJECT_BINARY_DIR}/Submodules/ekat)
+-
+-  # Force use of internal spdlog from EKAT
+-  message(STATUS "Forcing Ekat to build their own spdlog")
+-  set(CMAKE_DISABLE_FIND_PACKAGE_spdlog TRUE)
+-
+-  message(VERBOSE "EKAT binary directory: ${EKAT_BIN}")
+-  add_subdirectory(${PROJECT_SOURCE_DIR}/Submodules/ekat ${EKAT_BIN})
+-
+-  # Print Kokkos properties
+-  if(TARGET Kokkos::kokkos)
+-    print_target_properties(Kokkos::kokkos)
+-  elseif(TARGET kokkoscore)
+-    print_target_properties(kokkoscore)
+-  endif()
+-
+-# Strip GPU flags from Kokkos (AMReX provides them)
+-if(ERF_ENABLE_HIP AND ERF_ENABLE_EKAT)
+-  # Clear ALL link options from Kokkos targets - AMReX provides everything we need
+-  foreach(kokkos_target IN ITEMS kokkoscore kokkoscontainers kokkosalgorithms Kokkos::kokkos)
+-    if(TARGET ${kokkos_target})
+-      get_target_property(kokkos_link_opts ${kokkos_target} INTERFACE_LINK_OPTIONS)
+-      if(kokkos_link_opts AND NOT kokkos_link_opts STREQUAL "kokkos_link_opts-NOTFOUND")
+-        # Clear ALL link options - AMReX provides GPU flags
+-        set_target_properties(${kokkos_target} PROPERTIES INTERFACE_LINK_OPTIONS "")
+-        message(STATUS "Cleared link options from ${kokkos_target} (AMReX provides GPU flags)")
+-      endif()
+-    endif()
+-  endforeach()
+-
+-  # Print kokkoscore after clearing
+-  print_target_properties(kokkoscore)
+-endif()
+-# Strip GPU flags from Kokkos (AMReX provides them)
+-#if(ERF_ENABLE_HIP AND ERF_ENABLE_EKAT)
+-#  # Strip from ALL Kokkos targets
+-#  foreach(kokkos_target IN ITEMS kokkoscore kokkoscontainers kokkosalgorithms Kokkos::kokkos)
+-#    if(TARGET ${kokkos_target})
+-#      get_target_property(kokkos_link_opts ${kokkos_target} INTERFACE_LINK_OPTIONS)
+-#      if(kokkos_link_opts AND NOT kokkos_link_opts STREQUAL "kokkos_link_opts-NOTFOUND")
+-#        # Filter out GPU-related generator expressions
+-#        list(FILTER kokkos_link_opts EXCLUDE REGEX ".*--hip-link.*")
+-#        list(FILTER kokkos_link_opts EXCLUDE REGEX ".*--offload-arch=.*")
+-#        list(FILTER kokkos_link_opts EXCLUDE REGEX ".*-fgpu-rdc.*")
+-#        set_target_properties(${kokkos_target} PROPERTIES INTERFACE_LINK_OPTIONS "${kokkos_link_opts}")
+-#        message(STATUS "Stripped GPU flags from ${kokkos_target}")
+-#      endif()
+-#    endif()
+-#  endforeach()
+-
+-#  # Print kokkoscore after stripping
+-#  print_target_properties(kokkoscore)
+-#endif()
+-
+-list(POP_BACK CMAKE_MESSAGE_CONTEXT)
++  find_package(Ekat 2.1.0 EXACT CONFIG REQUIRED COMPONENTS Core KokkosUtils Pack Algorithm Logging)
+ endif()
+ 
+@@ -663,23 +580,8 @@
+   endif()
+ 
+-  message(VERBOSE "Building RRTMGP with Kokkos support")
+-
+-  # Build the static rrtmgp library
+-  set(RRTMGP_BIN ${PROJECT_BINARY_DIR}/Submodules/rrtmgp)
+-  message(VERBOSE "RRTMGP binary directory: ${RRTMGP_BIN}")
+-  add_subdirectory(${PROJECT_SOURCE_DIR}/Submodules/RRTMGP/cpp ${RRTMGP_BIN})
+-
+-  # Set up kokkos library and definitions
+-  set(RRTMGP_ENABLE_KOKKOS TRUE)
+-  target_compile_definitions(rrtmgp PUBLIC RRTMGP_ENABLE_KOKKOS)
+-  target_compile_options(rrtmgp PRIVATE
+-    $<$<COMPILE_LANG_AND_ID:CXX,GNU,Clang,AppleClang>:-Wno-unused-local-typedefs>
+-    $<$<COMPILE_LANG_AND_ID:CXX,Clang,AppleClang>:-Wno-c++11-narrowing>
+-  )
+-  target_link_libraries(rrtmgp kokkos)
+-  message(DEBUG "Added Kokkos to RRTMGP target")
+-
+-  # Print RRTMGP properties
+-  print_target_properties(rrtmgp)
++  find_package(Rrtmgp 26.11 EXACT CONFIG REQUIRED)
++  if(NOT RRTMGP_SOURCE_COMMIT STREQUAL "71693e7490db0908a625eadb6ac3f23967de2c7d")
++    message(FATAL_ERROR "ERF 26.11 requires its release-matched RRTMGP snapshot")
++  endif()
+ 
+   message(STATUS "RRTMGP configuration complete")
+@@ -698,26 +600,8 @@
+   endif()
+ 
+-  # NOTE: We compile shoc src files directly
+-  message(VERBOSE "SHOC source files will be compiled directly")
+-
+-  # E3SM Cloned Check
+-  message(VERBOSE "Checking EAMxx files from E3SM")
+-
+-  set(E3SM_EXPECTED_PATH "${PROJECT_SOURCE_DIR}/external/E3SM")
+-
+-  if(NOT EXISTS "${PROJECT_SOURCE_DIR}/external/E3SM/components/eamxx/src/physics")
+-      message(FATAL_ERROR
+-          "E3SM provides eamxx required for SHOC but not found.\n"
+-          "\n"
+-          "This requires specific EAMxx physics source files from E3SM at commit 2eb52d9.\n"
+-          "\n"
+-          "Option 1 - Use provided script (recommended):\n"
+-          "  ${PROJECT_SOURCE_DIR}/Build/eamxx_clone.sh\n"
+-          "\n"
+-          "Option 2 - Symlink existing E3SM (not tested, must be at commit 2eb52d9b3d):\n"
+-          "  ln -s /path/to/your/E3SM ${PROJECT_SOURCE_DIR}/external/E3SM\n"
+-          "\n"
+-          "Or disable features:\n"
+-          "  cmake -DERF_ENABLE_EAMXX_SHOC=OFF ..\n")
++  find_package(EamxxShoc 26.11 EXACT CONFIG REQUIRED)
++  if(NOT EAMXX_SHOC_SOURCE_COMMIT STREQUAL "2eb52d9b3d452e593f3825f9408507cae3519bf6"
++     OR NOT EAMXX_SHOC_PRECISION STREQUAL "double" OR NOT EAMXX_SHOC_PACK_SIZE EQUAL 1)
++    message(FATAL_ERROR "ERF 26.11 requires its double-precision, pack-size-one SHOC snapshot")
+   endif()
+ 
+--- a/CMake/BuildERFExe.cmake
++++ b/CMake/BuildERFExe.cmake
+@@ -41,81 +41,10 @@
+ 
+ function(erf_add_eamxx_shoc_sources target)
+-  set(EAMXX_SRC ${PROJECT_SOURCE_DIR}/external/E3SM/components/eamxx/src)
+-  set(ERF_EAMXX_IFACE ${PROJECT_SOURCE_DIR}/Source/PhysicsInterfaces/Shoc)
+-
+   target_include_directories(${target} PUBLIC
+     $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/Source/PhysicsInterfaces>
+-    $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/Source/PhysicsInterfaces/Shoc>
+-    $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/Submodules/ekat/src/pack>
+-    $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/Submodules/ekat/src/algorithm>
+-    $<BUILD_INTERFACE:${EAMXX_SRC}>
+-    $<BUILD_INTERFACE:${EAMXX_SRC}/physics>
+-    $<BUILD_INTERFACE:${EAMXX_SRC}/physics/share>
+-    $<BUILD_INTERFACE:${EAMXX_SRC}/physics/shoc>
+-    $<BUILD_INTERFACE:${EAMXX_SRC}/physics/shoc/eti>
+-    $<BUILD_INTERFACE:${EAMXX_SRC}/physics/shoc/impl>
+-  )
+-
++    $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/Source/PhysicsInterfaces/Shoc>)
+   target_sources(${target} PRIVATE
+-    ${ERF_EAMXX_IFACE}/ERF_ShocInterface.cpp
+-    ${EAMXX_SRC}/physics/share/physics_saturation.cpp
+-    ${EAMXX_SRC}/physics/shoc/disp/shoc_assumed_pdf_disp.cpp
+-    ${EAMXX_SRC}/physics/shoc/disp/shoc_check_tke_disp.cpp
+-    ${EAMXX_SRC}/physics/shoc/disp/shoc_compute_shoc_temperature_disp.cpp
+-    ${EAMXX_SRC}/physics/shoc/disp/shoc_compute_shoc_vapor_disp.cpp
+-    ${EAMXX_SRC}/physics/shoc/disp/shoc_diag_obklen_disp.cpp
+-    ${EAMXX_SRC}/physics/shoc/disp/shoc_diag_second_shoc_moments_disp.cpp
+-    ${EAMXX_SRC}/physics/shoc/disp/shoc_diag_third_shoc_moments_disp.cpp
+-    ${EAMXX_SRC}/physics/shoc/disp/shoc_energy_fixer_disp.cpp
+-    ${EAMXX_SRC}/physics/shoc/disp/shoc_energy_integrals_disp.cpp
+-    ${EAMXX_SRC}/physics/shoc/disp/shoc_grid_disp.cpp
+-    ${EAMXX_SRC}/physics/shoc/disp/shoc_length_disp.cpp
+-    ${EAMXX_SRC}/physics/shoc/disp/shoc_pblintd_disp.cpp
+-    ${EAMXX_SRC}/physics/shoc/disp/shoc_tke_disp.cpp
+-    ${EAMXX_SRC}/physics/shoc/disp/shoc_update_host_dse_disp.cpp
+-    ${EAMXX_SRC}/physics/shoc/disp/shoc_update_prognostics_implicit_disp.cpp
+-    ${EAMXX_SRC}/physics/shoc/eti/shoc_adv_sgs_tke.cpp
+-    ${EAMXX_SRC}/physics/shoc/eti/shoc_assumed_pdf.cpp
+-    ${EAMXX_SRC}/physics/shoc/eti/shoc_calc_shoc_varorcovar.cpp
+-    ${EAMXX_SRC}/physics/shoc/eti/shoc_calc_shoc_vertflux.cpp
+-    ${EAMXX_SRC}/physics/shoc/eti/shoc_check_length_scale_shoc_length.cpp
+-    ${EAMXX_SRC}/physics/shoc/eti/shoc_check_tke.cpp
+-    ${EAMXX_SRC}/physics/shoc/eti/shoc_clipping_diag_third_shoc_moments.cpp
+-    ${EAMXX_SRC}/physics/shoc/eti/shoc_compute_brunt_shoc_length.cpp
+-    ${EAMXX_SRC}/physics/shoc/eti/shoc_compute_diag_third_shoc_moment.cpp
+-    ${EAMXX_SRC}/physics/shoc/eti/shoc_compute_l_inf_shoc_length.cpp
+-    ${EAMXX_SRC}/physics/shoc/eti/shoc_compute_shoc_mix_shoc_length.cpp
+-    ${EAMXX_SRC}/physics/shoc/eti/shoc_compute_shoc_temperature.cpp
+-    ${EAMXX_SRC}/physics/shoc/eti/shoc_compute_shoc_vapor.cpp
+-    ${EAMXX_SRC}/physics/shoc/eti/shoc_compute_shr_prod.cpp
+-    ${EAMXX_SRC}/physics/shoc/eti/shoc_compute_tmpi.cpp
+-    ${EAMXX_SRC}/physics/shoc/eti/shoc_diag_obklen.cpp
+-    ${EAMXX_SRC}/physics/shoc/eti/shoc_diag_second_moments.cpp
+-    ${EAMXX_SRC}/physics/shoc/eti/shoc_diag_second_moments_lbycond.cpp
+-    ${EAMXX_SRC}/physics/shoc/eti/shoc_diag_second_moments_srf.cpp
+-    ${EAMXX_SRC}/physics/shoc/eti/shoc_diag_second_moments_ubycond.cpp
+-    ${EAMXX_SRC}/physics/shoc/eti/shoc_diag_second_shoc_moments.cpp
+-    ${EAMXX_SRC}/physics/shoc/eti/shoc_diag_third_shoc_moments.cpp
+-    ${EAMXX_SRC}/physics/shoc/eti/shoc_dp_inverse.cpp
+-    ${EAMXX_SRC}/physics/shoc/eti/shoc_eddy_diffusivities.cpp
+-    ${EAMXX_SRC}/physics/shoc/eti/shoc_energy_fixer.cpp
+-    ${EAMXX_SRC}/physics/shoc/eti/shoc_energy_integrals.cpp
+-    ${EAMXX_SRC}/physics/shoc/eti/shoc_grid.cpp
+-    ${EAMXX_SRC}/physics/shoc/eti/shoc_integ_column_stability.cpp
+-    ${EAMXX_SRC}/physics/shoc/eti/shoc_isotropic_ts.cpp
+-    ${EAMXX_SRC}/physics/shoc/eti/shoc_linear_interp.cpp
+-    ${EAMXX_SRC}/physics/shoc/eti/shoc_length.cpp
+-    ${EAMXX_SRC}/physics/shoc/eti/shoc_main.cpp
+-    ${EAMXX_SRC}/physics/shoc/eti/shoc_pblintd.cpp
+-    ${EAMXX_SRC}/physics/shoc/eti/shoc_pblintd_check_pblh.cpp
+-    ${EAMXX_SRC}/physics/shoc/eti/shoc_pblintd_cldcheck.cpp
+-    ${EAMXX_SRC}/physics/shoc/eti/shoc_pblintd_height.cpp
+-    ${EAMXX_SRC}/physics/shoc/eti/shoc_pblintd_init_pot.cpp
+-    ${EAMXX_SRC}/physics/shoc/eti/shoc_pblintd_surf_temp.cpp
+-    ${EAMXX_SRC}/physics/shoc/eti/shoc_tridiag_solver.cpp
+-    ${EAMXX_SRC}/physics/shoc/eti/shoc_tke.cpp
+-    ${EAMXX_SRC}/physics/shoc/eti/shoc_update_host_dse.cpp
+-    ${EAMXX_SRC}/physics/shoc/eti/shoc_update_prognostics_implicit.cpp
+-  )
++    ${PROJECT_SOURCE_DIR}/Source/PhysicsInterfaces/Shoc/ERF_ShocInterface.cpp)
++  target_link_libraries(${target} PUBLIC EamxxShoc::shoc)
+ endfunction()
+ 
+@@ -163,6 +92,4 @@
+     target_include_directories(${erf_lib_name} PUBLIC
+                                $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/Source/PhysicsInterfaces>
+-                               $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/Submodules/ekat/src/pack>
+-                               $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/Submodules/ekat/src/algorithm>
+                               )
+   endif()
+@@ -245,45 +172,13 @@
+   ########################### RRTMGP #################################
+   if(ERF_ENABLE_RRTMGP)
+-    set(RRTMGP_ERF_SOURCES
+-        ${SRC_DIR}/Radiation/RRTMGP/ERF_RRTMGP_Interface.cpp
+-        ${SRC_DIR}/Radiation/RRTMGP/ERF_Radiation.cpp
+-        ${PROJECT_SOURCE_DIR}/Submodules/RRTMGP/cpp/rrtmgp/mo_rrtmgp_util_reorder.cpp
+-        ${PROJECT_SOURCE_DIR}/Submodules/RRTMGP/cpp/rrtmgp/kernels/mo_gas_optics_kernels.cpp
+-        ${PROJECT_SOURCE_DIR}/Submodules/RRTMGP/cpp/rte/expand_and_transpose.cpp
+-        ${PROJECT_SOURCE_DIR}/Submodules/RRTMGP/cpp/rte/kernels/mo_fluxes_broadband_kernels.cpp
+-        ${PROJECT_SOURCE_DIR}/Submodules/RRTMGP/cpp/rte/kernels/mo_optical_props_kernels.cpp
+-        ${PROJECT_SOURCE_DIR}/Submodules/RRTMGP/cpp/rte/kernels/mo_rte_solver_kernels.cpp
+-        ${PROJECT_SOURCE_DIR}/Submodules/RRTMGP/cpp/examples/mo_load_coefficients.cpp
+-        ${PROJECT_SOURCE_DIR}/Submodules/RRTMGP/cpp/examples/all-sky/mo_garand_atmos_io.cpp
+-        ${PROJECT_SOURCE_DIR}/Submodules/RRTMGP/cpp/examples/all-sky/mo_load_cloud_coefficients.cpp
+-        ${PROJECT_SOURCE_DIR}/Submodules/RRTMGP/cpp/extensions/fluxes_byband/mo_fluxes_byband_kernels.cpp
+-    )
+-
+-    # RRTMGP is third-party code. Mark only its include directories as SYSTEM
+-    # so warnings from its headers do not leak into ordinary ERF translation
+-    # units that include ERF.H.
++    target_sources(${erf_lib_name} PRIVATE
++      ${SRC_DIR}/Radiation/RRTMGP/ERF_RRTMGP_Interface.cpp
++      ${SRC_DIR}/Radiation/RRTMGP/ERF_Radiation.cpp)
+     target_include_directories(${erf_lib_name} PUBLIC
+-                               $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/Source/Radiation/RRTMGP>
+-                              )
+-    target_include_directories(${erf_lib_name} SYSTEM PUBLIC
+-                               $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/Submodules/RRTMGP/cpp>
+-                               $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/Submodules/RRTMGP/cpp/rrtmgp>
+-                               $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/Submodules/RRTMGP/cpp/rrtmgp/kernels>
+-                               $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/Submodules/RRTMGP/cpp/rte>
+-                               $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/Submodules/RRTMGP/cpp/rte/kernels>
+-                               $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/Submodules/RRTMGP/cpp/examples>
+-                               $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/Submodules/RRTMGP/cpp/examples/all-sky>
+-                               $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/Submodules/RRTMGP/cpp/extensions/cloud_optics>
+-                               $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/Submodules/RRTMGP/cpp/extensions/fluxes_byband>
+-                              )
+-    target_sources(${erf_lib_name} PRIVATE
+-                   ${RRTMGP_ERF_SOURCES}
+-                  )
+-    set_source_files_properties(${RRTMGP_ERF_SOURCES}
+-      PROPERTIES COMPILE_OPTIONS
+-      "$<$<COMPILE_LANG_AND_ID:CXX,GNU,Clang,AppleClang>:-Wno-unused-local-typedefs>;$<$<COMPILE_LANG_AND_ID:CXX,Clang,AppleClang>:-Wno-c++11-narrowing>"
+-    )
+-    target_compile_definitions(${erf_lib_name} PUBLIC ERF_USE_RRTMGP)
+-    target_compile_definitions(${erf_lib_name} PUBLIC RRTMGP_ENABLE_KOKKOS)
++      $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/Source/Radiation/RRTMGP>)
++    target_link_libraries(${erf_lib_name} PUBLIC Rrtmgp::rrtmgp)
++    target_compile_definitions(${erf_lib_name} PUBLIC ERF_USE_RRTMGP
++      ERF_RRTMGP_DATA_DIR="${RRTMGP_DATA_DIR}")
++
+   endif()
+ 
+--- a/CMake/ERFConfig.cmake.in
++++ b/CMake/ERFConfig.cmake.in
+@@ -2,4 +2,15 @@
+ 
+ find_package(AMReX QUIET REQUIRED @AMREX_COMPONENTS@)
++
++include(CMakeFindDependencyMacro)
++if(@ERF_ENABLE_EKAT@)
++  find_dependency(Ekat 2.1.0 EXACT CONFIG)
++endif()
++if(@ERF_ENABLE_RRTMGP@)
++  find_dependency(Rrtmgp 26.11 EXACT CONFIG)
++endif()
++if(@ERF_ENABLE_EAMXX_SHOC@)
++  find_dependency(EamxxShoc 26.11 EXACT CONFIG)
++endif()
+ 
+ include("${CMAKE_CURRENT_LIST_DIR}/@PROJECT_NAME@Targets.cmake")
+--- a/CMake/CrayDetection.cmake
++++ b/CMake/CrayDetection.cmake
+@@ -455,28 +455,5 @@
+ endif()
+ 
+-# E3SM Cloned Check
+-if(ERF_ENABLE_EAMXX_SHOC)
+-    message(VERBOSE "Checking EAMxx files from E3SM")
+-
+-    set(E3SM_EXPECTED_PATH "${PROJECT_SOURCE_DIR}/external/E3SM")
+-
+-    if(NOT EXISTS "${PROJECT_SOURCE_DIR}/external/E3SM/components/eamxx/src/physics")
+-        message(FATAL_ERROR
+-            "E3SM provides eamxx required for SHOC but not found.\n"
+-            "\n"
+-            "This requires specific EAMxx physics source files from E3SM at commit 2eb52d9.\n"
+-            "\n"
+-            "Option 1 - Use provided script (recommended):\n"
+-            "  ${PROJECT_SOURCE_DIR}/Build/eamxx_clone.sh\n"
+-            "\n"
+-            "Option 2 - Symlink existing E3SM (not tested, must be at commit 2eb52d9b3d):\n"
+-            "  ln -s /path/to/your/E3SM ${PROJECT_SOURCE_DIR}/external/E3SM\n"
+-            "\n"
+-            "Or disable features:\n"
+-            "  cmake -DERF_ENABLE_EAMXX_SHOC=OFF ..\n")
+-    endif()
+-else()
+-    message(DEBUG "EKAT physics not enabled, skipping E3SM check")
+-endif()
++# EAMxx SHOC is supplied by an installed package; no E3SM source tree is needed.
+ 
+ # Environment summary (DEBUG level)
+--- a/Source/Radiation/RRTMGP/ERF_Radiation.H
++++ b/Source/Radiation/RRTMGP/ERF_Radiation.H
+@@ -349,5 +349,5 @@
+ 
+     // Path, data file, and coefficient file for K-distribution
+-    std::string rrtmgp_file_path       = ".";
++    std::string rrtmgp_file_path       = ERF_RRTMGP_DATA_DIR;
+     std::string rrtmgp_coeffs_sw       = "rrtmgp-data-sw-g224-2018-12-04.nc";
+     std::string rrtmgp_coeffs_lw       = "rrtmgp-data-lw-g256-2018-12-04.nc";

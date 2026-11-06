@@ -1,0 +1,54 @@
+Use installed radiation and land parameter data in the existing regression tests.
+
+--- a/Tests/CTestList.cmake
++++ b/Tests/CTestList.cmake
+@@ -808,7 +808,11 @@
+ # runs in place; fail as soon as that copy stops matching the submodule, so the nightly
+ # reference never silently tests stale parameters. A file comparison: no Noah-MP build needed.
+ # Registered only when the submodule is checked out, which every CI job does.
+-set(ERF_NOAHMP_TABLE "${PROJECT_SOURCE_DIR}/Submodules/Noah-MP/parameters/NoahmpTable.TBL")
++if(ERF_ENABLE_NOAHMP AND DEFINED NoahMP_DATA_DIR)
++  set(ERF_NOAHMP_TABLE "${NoahMP_DATA_DIR}/NoahmpTable.TBL")
++else()
++  set(ERF_NOAHMP_TABLE "${PROJECT_SOURCE_DIR}/Submodules/Noah-MP/parameters/NoahmpTable.TBL")
++endif()
+ if(EXISTS "${ERF_NOAHMP_TABLE}")
+   add_test(NoahMP_Ideal_TableMatchesSubmodule ${CMAKE_COMMAND}
+       "-DSUBMODULE_TABLE=${ERF_NOAHMP_TABLE}"
+@@ -2395,7 +2399,7 @@
+       "-DWORKING_DIRECTORY=${CURRENT_TEST_BINARY_DIR}"
+       "-DFCOMPARE=${FCOMPARE_EXE}"
+       "-DFEXTREMA=${FEXTREMA_EXE}"
+-      "-DRRTMGP_ROOT=${PROJECT_SOURCE_DIR}/Submodules/RRTMGP"
++      "-DRRTMGP_DATA_DIR=${RRTMGP_DATA_DIR}"
+       -P ${PROJECT_SOURCE_DIR}/Tests/RunTopographicRadiationFlat.cmake)
+   set_tests_properties(${TEST_NAME} PROPERTIES
+       TIMEOUT 900
+--- a/Tests/RunTopographicRadiationFlat.cmake
++++ b/Tests/RunTopographicRadiationFlat.cmake
+@@ -4,7 +4,7 @@
+ include("${CMAKE_CURRENT_LIST_DIR}/MPILauncher.cmake")
+ include("${CMAKE_CURRENT_LIST_DIR}/ResolveExecutable.cmake")
+ 
+-foreach(arg NRANKS TEST_EXE INPUT WORKING_DIRECTORY FCOMPARE FEXTREMA RRTMGP_ROOT)
++foreach(arg NRANKS TEST_EXE INPUT WORKING_DIRECTORY FCOMPARE FEXTREMA RRTMGP_DATA_DIR)
+     if("${${arg}}" STREQUAL "")
+         message(FATAL_ERROR "RunTopographicRadiationFlat.cmake: ${arg} is required")
+     endif()
+@@ -33,14 +33,14 @@
+     file(MAKE_DIRECTORY "${dir}/radiation_data")
+     file(COPY "${WORKING_DIRECTORY}/input_sounding" DESTINATION "${dir}")
+     foreach(name rrtmgp-data-sw-g224-2018-12-04.nc rrtmgp-data-lw-g256-2018-12-04.nc)
+-        file(CREATE_LINK "${RRTMGP_ROOT}/rrtmgp/data/${name}"
++        file(CREATE_LINK "${RRTMGP_DATA_DIR}/${name}"
+             "${dir}/radiation_data/${name}" SYMBOLIC RESULT link_result)
+         if(NOT link_result STREQUAL "0")
+             message(FATAL_ERROR "Cannot link RRTMGP data ${name}: ${link_result}")
+         endif()
+     endforeach()
+     foreach(name rrtmgp-cloud-optics-coeffs-sw.nc rrtmgp-cloud-optics-coeffs-lw.nc)
+-        file(CREATE_LINK "${RRTMGP_ROOT}/extensions/cloud_optics/${name}"
++        file(CREATE_LINK "${RRTMGP_DATA_DIR}/${name}"
+             "${dir}/radiation_data/${name}" SYMBOLIC RESULT link_result)
+         if(NOT link_result STREQUAL "0")
+             message(FATAL_ERROR "Cannot link RRTMGP data ${name}: ${link_result}")

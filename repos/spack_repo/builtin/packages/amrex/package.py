@@ -163,6 +163,14 @@ class Amrex(CMakePackage, CudaPackage, ROCmPackage):
     variant("linear_solvers", default=True, description="Build linear solvers")
     variant("amrdata", default=False, description="Build data services")
     variant("particles", default=False, description="Build particle classes")
+    variant(
+        "particles_precision",
+        default="same",
+        values=("same", "double", "single"),
+        multi=False,
+        description="Precision of particle data ('same' follows precision)",
+        when="@26.06:+particles",
+    )
     variant("plotfile_tools", default=False, description="Build plotfile_tools like fcompare")
     variant("tiny_profile", default=False, description="Enable tiny profiling")
     variant("hdf5", default=False, description="Enable HDF5-based I/O")
@@ -402,6 +410,23 @@ class Amrex(CMakePackage, CudaPackage, ROCmPackage):
             self.define_from_variant("AMReX_SUNDIALS", "sundials"),
             self.define_from_variant("AMReX_PIC", "pic"),
         ]
+
+        if self.spec.satisfies("@26.06:+particles") and not self.spec.satisfies(
+            "particles_precision=same"
+        ):
+            # xSDK mode assigns particle precision from mesh precision with a
+            # plain set(), shadowing AMReX_PARTICLES_PRECISION in the cache.
+            args = [a for a in args if not a.startswith("-DUSE_XSDK_DEFAULTS")]
+            args.extend(
+                [
+                    self.define("USE_XSDK_DEFAULTS", False),
+                    self.define("AMReX_PRECISION", self.spec.variants["precision"].value.upper()),
+                    self.define(
+                        "AMReX_PARTICLES_PRECISION",
+                        self.spec.variants["particles_precision"].value.upper(),
+                    ),
+                ]
+            )
 
         if self.spec.satisfies("+fft"):
             args.append("-DAMReX_FFT=ON")

@@ -1,0 +1,65 @@
+Use the separately installed, release-matched NoahMP library for ERF 26.11.
+
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -630,14 +630,12 @@
+   message(STATUS "Configuring Noah-MP")
+ 
+   if(ERF_ENABLE_NETCDF)
+-     set(NOAHMP_HOME ${PROJECT_SOURCE_DIR}/Submodules/Noah-MP/drivers/erf)
+-     set(NOAHMP_BIN  ${PROJECT_BINARY_DIR}/Submodules/Noah-MP/drivers/erf)
+-     message(VERBOSE "Noah-MP source: ${NOAHMP_HOME}")
+-     message(VERBOSE "Noah-MP binary: ${NOAHMP_BIN}")
+-     add_subdirectory(${NOAHMP_HOME} ${NOAHMP_BIN})
+-
+-     if(ERF_PRECISION STREQUAL "DOUBLE")
+-        target_compile_definitions(noahmp PUBLIC DOUBLE_PREC)
++     find_package(NoahMP 26.11 EXACT CONFIG REQUIRED)
++     if(NOT NoahMP_ERF_COMMIT STREQUAL "fbaa38f0753a0f199dcebd508e2ef64a5dc74bfd")
++        message(FATAL_ERROR "ERF 26.11 requires its release-matched NoahMP fork")
++     endif()
++     if(NOT ERF_PRECISION STREQUAL "DOUBLE")
++        message(FATAL_ERROR "The installed NoahMP library requires ERF_PRECISION=DOUBLE")
+      endif()
+   else()
+      message(FATAL_ERROR "Noah-MP requires NetCDF be enabled")
+--- a/CMake/BuildERFExe.cmake
++++ b/CMake/BuildERFExe.cmake
+@@ -220,8 +220,7 @@
+   ########################## NOAHMP ##################################
+   if(ERF_ENABLE_NOAHMP)
+     target_include_directories(${erf_lib_name} PUBLIC
+-                               $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/Source/LandSurfaceModel/Noah-MP>
+-                               $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/Submodules/Noah-MP/drivers/erf>)
++                               $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/Source/LandSurfaceModel/Noah-MP>)
+     target_sources(${erf_lib_name} PRIVATE
+                    ${SRC_DIR}/LandSurfaceModel/Noah-MP/ERF_NOAHMP_Init.cpp
+                    ${SRC_DIR}/LandSurfaceModel/Noah-MP/ERF_NOAHMP_Advance.cpp
+@@ -675,16 +674,7 @@
+   # next cmake run. NOAHMP_HOME is NOT used here: under CMake it points at
+   # Submodules/Noah-MP/drivers/erf, while git describe needs the submodule root.
+   if(ERF_ENABLE_NOAHMP)
+-    find_package(Git QUIET)
+-    set(ERF_NOAHMP_HASH "")
+-    if(GIT_FOUND AND EXISTS ${PROJECT_SOURCE_DIR}/Submodules/Noah-MP/.git)
+-      execute_process(
+-        COMMAND ${GIT_EXECUTABLE} describe --abbrev=12 --dirty --always --tags
+-        WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}/Submodules/Noah-MP
+-        OUTPUT_VARIABLE ERF_NOAHMP_HASH
+-        OUTPUT_STRIP_TRAILING_WHITESPACE
+-        ERROR_QUIET)
+-    endif()
++    set(ERF_NOAHMP_HASH "${NoahMP_ERF_COMMIT}")
+     set_source_files_properties(${SRC_DIR}/IO/ERF_NoahMPGitHash.cpp PROPERTIES
+       COMPILE_DEFINITIONS "ERF_NOAHMP_GIT_HASH=\"${ERF_NOAHMP_HASH}\"")
+   endif()
+--- a/CMake/ERFConfig.cmake.in
++++ b/CMake/ERFConfig.cmake.in
+@@ -1,4 +1,7 @@
+ @PACKAGE_INIT@
++
++include(CMakeFindDependencyMacro)
++find_dependency(NoahMP 26.11 EXACT CONFIG)
+ 
+ find_package(AMReX QUIET REQUIRED @AMREX_COMPONENTS@)
+ 
